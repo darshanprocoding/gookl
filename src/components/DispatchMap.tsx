@@ -1,0 +1,2283 @@
+import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
+import DeckGL from '@deck.gl/react';
+import { GeoJsonLayer, ScatterplotLayer, LineLayer } from '@deck.gl/layers';
+import { Map as MapGL } from 'react-map-gl/maplibre';
+import * as maplibregl from 'maplibre-gl';
+import { FlyToInterpolator } from '@deck.gl/core';
+import { motion, AnimatePresence } from 'motion/react';
+import {
+  MapPin,
+  Truck,
+  Package,
+  Ship,
+  Zap,
+  Droplets,
+  Gauge,
+  Tent,
+  AlertTriangle,
+  ChevronDown,
+  ChevronRight,
+  ChevronLeft,
+  Search,
+  SlidersHorizontal,
+  Layers,
+  Compass,
+  Play,
+  Pause,
+  RotateCcw,
+  Sparkles,
+  ShieldAlert,
+  Radio,
+  Send,
+  Building2,
+  Users,
+  CheckCircle2,
+  Clock,
+  Navigation,
+  X,
+  Crosshair,
+  ArrowRight,
+  HeartPulse,
+  Activity,
+  Maximize2,
+  Minimize2,
+  Info,
+  Flame,
+  Wind,
+  Waves,
+} from 'lucide-react';
+
+import {
+  STATE_RESOURCE_DATA,
+  RESOURCE_CATEGORIES,
+  StateResourceProfile,
+} from '../data/stateResourceData';
+import { STATE_GEO_CONFIGS, getStateGeoConfig } from '../data/stateCoordinates';
+import {
+  WAREHOUSE_FACILITIES,
+  WarehouseFacility,
+  findNearestWarehouse,
+  getWarehousesForState,
+  calculateDistanceKm,
+} from '../data/warehouseData';
+import {
+  computeFeatureCentroid,
+  computeZoneVulnerability,
+  ZoneScoreCalculation,
+  DisasterType,
+  DISASTER_PRESETS,
+  SEVERITY_LEVELS_BY_TYPE,
+} from '../utils/vulnerabilityMath';
+import {
+  getDistrictBaseline,
+  calculateDistrictVulnerabilityProfile,
+  calculateStateVulnerabilityScore,
+  canonicalStateName,
+  isStateMatch,
+  DistrictVulnerabilityProfile,
+} from '../data/districtProfiles';
+import { useDisasterSimulation } from '../context/DisasterSimulationContext';
+
+export interface DispatchMission {
+  id: string;
+  stateId: string;
+  targetDistrict: string;
+  targetCoords: [number, number];
+  originDepot: string;
+  originCoords: [number, number];
+  resourceType: keyof typeof RESOURCE_CATEGORIES;
+  quantity: number;
+  unitLabel: string;
+  transportMode: 'Green Road Corridor' | 'Waterway Fleet / Boat' | 'High-Mobility 4x4' | 'IAF Airlift';
+  status: 'In Transit' | 'Staged' | 'Arrived & Active';
+  progress: number; // 0 to 100
+  etaMinutes: number;
+  priority: 'CRITICAL' | 'HIGH' | 'ROUTINE';
+  dispatchedAt: string;
+}
+
+// Initial Active Dispatches originating strictly from official NDMA/SDMA relief warehouses
+const INITIAL_DISPATCHES: DispatchMission[] = [
+  {
+    id: 'DSP-8821',
+    stateId: 'assam',
+    targetDistrict: 'Majuli',
+    targetCoords: [94.21, 26.96],
+    originDepot: 'Garamur District Godown (Majuli River Island Flood Reserve)',
+    originCoords: [94.1670, 26.9530],
+    resourceType: 'floatingClinics',
+    quantity: 4,
+    unitLabel: 'Motorized Boat Clinics',
+    transportMode: 'Waterway Fleet / Boat',
+    status: 'In Transit',
+    progress: 68,
+    etaMinutes: 25,
+    priority: 'CRITICAL',
+    dispatchedAt: '12 mins ago',
+  },
+  {
+    id: 'DSP-8822',
+    stateId: 'assam',
+    targetDistrict: 'Cachar',
+    targetCoords: [92.7789, 24.8333],
+    originDepot: 'Silchar DDMA Warehouse (Barak Valley Regional Hub)',
+    originCoords: [92.7789, 24.8333],
+    resourceType: 'waterMotorPumps',
+    quantity: 45,
+    unitLabel: 'High-Discharge Dewatering Pumps',
+    transportMode: 'Green Road Corridor',
+    status: 'In Transit',
+    progress: 85,
+    etaMinutes: 15,
+    priority: 'HIGH',
+    dispatchedAt: '25 mins ago',
+  },
+  {
+    id: 'DSP-8830',
+    stateId: 'bihar',
+    targetDistrict: 'Supaul',
+    targetCoords: [86.60, 26.12],
+    originDepot: 'Muzaffarpur DDMA Godown (Tirhut Division Relief Hub)',
+    originCoords: [85.3647, 26.1209],
+    resourceType: 'rationPackets',
+    quantity: 15000,
+    unitLabel: 'Family Food Kits',
+    transportMode: 'Green Road Corridor',
+    status: 'In Transit',
+    progress: 55,
+    etaMinutes: 45,
+    priority: 'CRITICAL',
+    dispatchedAt: '35 mins ago',
+  },
+  {
+    id: 'DSP-8831',
+    stateId: 'bihar',
+    targetDistrict: 'Kishanganj',
+    targetCoords: [87.9403, 26.0754],
+    originDepot: 'Kishanganj District Reserve (Flood Plains Staging Area)',
+    originCoords: [87.9403, 26.0754],
+    resourceType: 'tarpTentKits',
+    quantity: 8500,
+    unitLabel: 'Shelter Kits',
+    transportMode: 'Green Road Corridor',
+    status: 'In Transit',
+    progress: 80,
+    etaMinutes: 15,
+    priority: 'HIGH',
+    dispatchedAt: '50 mins ago',
+  },
+  {
+    id: 'DSP-8840',
+    stateId: 'odisha',
+    targetDistrict: 'Puri',
+    targetCoords: [85.83, 19.81],
+    originDepot: 'Chhatrapur Collectorate Hub (Cyclone Relief Godown, Ganjam)',
+    originCoords: [84.9866, 19.3549],
+    resourceType: 'emergencyGenerators',
+    quantity: 35,
+    unitLabel: 'Mobile DG Sets (125 kVA)',
+    transportMode: 'Green Road Corridor',
+    status: 'In Transit',
+    progress: 75,
+    etaMinutes: 30,
+    priority: 'CRITICAL',
+    dispatchedAt: '40 mins ago',
+  },
+  {
+    id: 'DSP-8850',
+    stateId: 'tamil-nadu',
+    targetDistrict: 'Cuddalore',
+    targetCoords: [79.76, 11.75],
+    originDepot: 'Cuddalore District Depot (Coastal Relief Warehouse)',
+    originCoords: [79.7714, 11.7480],
+    resourceType: 'waterTankers',
+    quantity: 30,
+    unitLabel: 'Potable Bowsers (10,000L)',
+    transportMode: 'Green Road Corridor',
+    status: 'In Transit',
+    progress: 90,
+    etaMinutes: 10,
+    priority: 'HIGH',
+    dispatchedAt: '30 mins ago',
+  },
+  {
+    id: 'DSP-8860',
+    stateId: 'maharashtra',
+    targetDistrict: 'Raigad',
+    targetCoords: [73.18, 18.51],
+    originDepot: 'Alibag Emergency Godown (Monsoon Relief Hub, Raigad)',
+    originCoords: [72.8722, 18.6414],
+    resourceType: 'debrisMachinery',
+    quantity: 14,
+    unitLabel: 'Excavators & Rock Breakers',
+    transportMode: 'High-Mobility 4x4',
+    status: 'In Transit',
+    progress: 72,
+    etaMinutes: 20,
+    priority: 'CRITICAL',
+    dispatchedAt: '45 mins ago',
+  },
+  {
+    id: 'DSP-8870',
+    stateId: 'uttarakhand',
+    targetDistrict: 'Chamoli',
+    targetCoords: [79.35, 30.41],
+    originDepot: 'Gopeshwar Central Store (High-Altitude Emergency Depot, Chamoli)',
+    originCoords: [79.3308, 30.4086],
+    resourceType: 'medicalFirstAidUnits',
+    quantity: 120,
+    unitLabel: 'Trauma & Oxygen Units',
+    transportMode: 'High-Mobility 4x4',
+    status: 'In Transit',
+    progress: 60,
+    etaMinutes: 40,
+    priority: 'CRITICAL',
+    dispatchedAt: '20 mins ago',
+  },
+];
+
+const REGIONS = ['All', 'North', 'North-East', 'East', 'West', 'South', 'Central'];
+
+// Helper to calculate RGB color based on vulnerability score
+function getVulnerabilityColor(score: number): [number, number, number] {
+  if (score >= 72) return [239, 68, 68]; // Critical - Red
+  if (score >= 55) return [249, 115, 22]; // High - Orange
+  if (score >= 42) return [245, 158, 11]; // Moderate - Amber
+  return [16, 185, 129]; // Low - Emerald
+}
+
+export const DispatchMap: React.FC = () => {
+  // State Selection & Dropdown State
+  const [selectedStateId, setSelectedStateId] = useState<string>('bihar');
+  const [isDropdownOpen, setIsDropdownOpen] = useState<boolean>(false);
+  const [isDisasterDropdownOpen, setIsDisasterDropdownOpen] = useState<boolean>(false);
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [selectedRegionFilter, setSelectedRegionFilter] = useState<string>('All');
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const disasterDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Shared Disaster Simulation Context (synced across Vulnerability Map & Dispatch Map)
+  const {
+    disasterType,
+    selectedSeverityId,
+    epicenter,
+    epicenterName,
+    customRadiusKm,
+    currentSeverity,
+    activeParams,
+    getZoneColor,
+    getZoneRGB,
+    setDisasterScenario,
+    setDisasterType,
+    setSelectedSeverityId,
+    setEpicenter,
+    setEpicenterName,
+  } = useDisasterSimulation();
+
+  // GeoJSON dataset
+  const [geoData, setGeoData] = useState<any>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  // Selected State Profile & Config
+  const selectedStateProfile = useMemo(() => {
+    return STATE_RESOURCE_DATA.find((s) => s.id === selectedStateId) || STATE_RESOURCE_DATA[0];
+  }, [selectedStateId]);
+
+  const stateGeoConfig = useMemo(() => {
+    return getStateGeoConfig(selectedStateId);
+  }, [selectedStateId]);
+
+  // View State for DeckGL with smooth fly-to transition
+  const [is3DMode, setIs3DMode] = useState<boolean>(true);
+  const [viewState, setViewState] = useState({
+    longitude: stateGeoConfig.center[0],
+    latitude: stateGeoConfig.center[1],
+    zoom: stateGeoConfig.zoom,
+    pitch: is3DMode ? 28 : 0,
+    bearing: 0,
+  });
+
+  // Selected District within State
+  const [selectedDistrictProps, setSelectedDistrictProps] = useState<any | null>(null);
+
+  // Selected Warehouse Facility
+  const [selectedWarehouse, setSelectedWarehouse] = useState<WarehouseFacility | null>(null);
+
+  // Active Dispatches (populated with realistic live NDMA initial dispatches)
+  const [dispatches, setDispatches] = useState<DispatchMission[]>(INITIAL_DISPATCHES);
+  const [showNewDispatchModal, setShowNewDispatchModal] = useState<boolean>(false);
+  const [isLeftPanelOpen, setIsLeftPanelOpen] = useState<boolean>(true);
+  const [activeLeftTab, setActiveLeftTab] = useState<'inventory' | 'dispatches'>('inventory');
+
+  // State Warehouses from National Dataset of 68 Relief Facilities
+  const stateWarehouses = useMemo(() => {
+    return getWarehousesForState(selectedStateId);
+  }, [selectedStateId]);
+
+  // New Dispatch Form State
+  const [selectedOriginWarehouseId, setSelectedOriginWarehouseId] = useState<string>('');
+  const [newTargetDistrict, setNewTargetDistrict] = useState<string>('');
+  const [newResourceType, setNewResourceType] = useState<keyof typeof RESOURCE_CATEGORIES>('waterTankers');
+  const [newQuantity, setNewQuantity] = useState<number>(10);
+  const [newTransportMode, setNewTransportMode] = useState<DispatchMission['transportMode']>('Green Road Corridor');
+  const [newPriority, setNewPriority] = useState<DispatchMission['priority']>('CRITICAL');
+
+  // Layer Toggles
+  const [layerToggles, setLayerToggles] = useState({
+    convoys: true,
+    warehouses: true,
+    floatingClinics: true,
+    pumps: true,
+    vulnerabilityTint: true,
+  });
+
+  // Auto Tour playback state
+  const [isAutoTouring, setIsAutoTouring] = useState<boolean>(false);
+
+  // Advance in-transit dispatches realistically and smoothly
+  useEffect(() => {
+    if (dispatches.length === 0) return;
+    const interval = setInterval(() => {
+      setDispatches((prev) =>
+        prev.map((d) => {
+          if (d.status === 'In Transit') {
+            const nextProgress = Math.min(100, (d.progress || 0) + 1);
+            const isArrived = nextProgress >= 100;
+            return {
+              ...d,
+              progress: nextProgress,
+              etaMinutes: Math.max(0, Math.round(d.etaMinutes * (1 - nextProgress / 100))),
+              status: isArrived ? 'Arrived & Active' : 'In Transit',
+            };
+          }
+          return d;
+        })
+      );
+    }, 1500);
+    return () => clearInterval(interval);
+  }, [dispatches.length]);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Load GeoJSON dataset
+  useEffect(() => {
+    setLoading(true);
+    setLoadError(null);
+    fetch('/india-districts.json')
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+        return res.json();
+      })
+      .then((data) => {
+        const enrichedFeatures = (data.features || []).map((feature: any, index: number) => {
+          const rawState = feature.properties?.NAME_1 || 'India';
+          const stateName = canonicalStateName(rawState);
+          const districtName = feature.properties?.NAME_2 || `District ${index + 1}`;
+          const centroid = computeFeatureCentroid(feature.geometry);
+          const baseline = getDistrictBaseline(districtName, stateName);
+          const distId = `dist-${index}`;
+
+          // Precompute vulnerability profile for fast lookup
+          const vProfile = calculateDistrictVulnerabilityProfile(stateName, districtName, centroid);
+
+          return {
+            ...feature,
+            properties: {
+              ...feature.properties,
+              id: distId,
+              name: districtName,
+              state: stateName,
+              centroid,
+              coordinates: centroid,
+              population: baseline.population,
+              areaKm2: baseline.areaKm2,
+              populationDensity: baseline.populationDensity,
+              povertyIndex: baseline.povertyIndex,
+              dependencyRatio: baseline.dependencyRatio,
+              buildingVulnerability: baseline.buildingVulnerability,
+              historicalDamageScore: baseline.historicalDamageScore,
+              lifelineProximityScore: baseline.lifelineProximityScore,
+              ewsCoverage: baseline.ewsCoverage,
+              primaryRiskFactor: baseline.primaryRiskFactor,
+              floodBase: baseline.floodBase,
+              heatwaveBase: baseline.heatwaveBase,
+              cycloneBase: baseline.cycloneBase,
+              vulnerabilityScore: vProfile.vulnerabilityScore,
+              riskTier: vProfile.riskTier,
+              exposureScore: vProfile.exposureScore,
+              sensitivityScore: vProfile.sensitivityScore,
+              adaptiveCapacityScore: vProfile.adaptiveCapacityScore,
+              lackOfCapacityScore: vProfile.lackOfCapacityScore,
+            },
+          };
+        });
+
+        setGeoData({
+          type: 'FeatureCollection',
+          features: enrichedFeatures,
+        });
+        setLoading(false);
+      })
+      .catch((err) => {
+        console.error('Failed to load district maps', err);
+        setLoadError(err.message || 'Failed to load geospatial data');
+        setLoading(false);
+      });
+  }, []);
+
+  // Smoothly Fly To State when `selectedStateId` changes
+  const flyToState = useCallback(
+    (stateId: string, customPitch?: number) => {
+      const cfg = getStateGeoConfig(stateId);
+      const targetPitch = customPitch !== undefined ? customPitch : is3DMode ? 28 : 0;
+
+      setViewState({
+        longitude: cfg.center[0],
+        latitude: cfg.center[1],
+        zoom: cfg.zoom,
+        pitch: targetPitch,
+        bearing: 0,
+        // @ts-ignore DeckGL smooth flight properties
+        transitionDuration: 1350,
+        transitionInterpolator: new FlyToInterpolator({ speed: 1.35, curve: 1.4 }),
+      });
+    },
+    [is3DMode]
+  );
+
+  // Switch State Handler
+  const handleSelectState = (stateId: string) => {
+    setSelectedStateId(stateId);
+    setIsDropdownOpen(false);
+    setSelectedDistrictProps(null);
+    setSelectedWarehouse(null);
+    flyToState(stateId);
+  };
+
+  // Previous / Next State Navigation
+  const handleCycleState = (direction: 'prev' | 'next') => {
+    const currentIndex = STATE_RESOURCE_DATA.findIndex((s) => s.id === selectedStateId);
+    let nextIndex = direction === 'next' ? currentIndex + 1 : currentIndex - 1;
+    if (nextIndex >= STATE_RESOURCE_DATA.length) nextIndex = 0;
+    if (nextIndex < 0) nextIndex = STATE_RESOURCE_DATA.length - 1;
+
+    handleSelectState(STATE_RESOURCE_DATA[nextIndex].id);
+  };
+
+  // Auto Tour playback logic
+  useEffect(() => {
+    if (!isAutoTouring) return;
+    const interval = setInterval(() => {
+      handleCycleState('next');
+    }, 7000);
+    return () => clearInterval(interval);
+  }, [isAutoTouring, selectedStateId]);
+
+  // Toggle 3D / 2D perspective
+  const handleToggle3D = () => {
+    const nextMode = !is3DMode;
+    setIs3DMode(nextMode);
+    setViewState((prev) => ({
+      ...prev,
+      pitch: nextMode ? 28 : 0,
+      // @ts-ignore
+      transitionDuration: 800,
+      transitionInterpolator: new FlyToInterpolator(),
+    }));
+  };
+
+  // Filtered State List for Dropdown
+  const filteredStates = useMemo(() => {
+    return STATE_RESOURCE_DATA.filter((st) => {
+      const matchRegion = selectedRegionFilter === 'All' || st.region === selectedRegionFilter;
+      const q = searchQuery.toLowerCase().trim();
+      const matchQuery =
+        !q ||
+        st.stateName.toLowerCase().includes(q) ||
+        st.capital.toLowerCase().includes(q) ||
+        st.stateCode.toLowerCase().includes(q) ||
+        st.primaryDisasterRisk.toLowerCase().includes(q);
+
+      return matchRegion && matchQuery;
+    });
+  }, [searchQuery, selectedRegionFilter]);
+
+  // Dynamic District Vulnerability Calculation Map (calculates in <0.5ms whenever disaster scenario changes)
+  const districtCalculationsMap = useMemo(() => {
+    if (!geoData || !geoData.features) return new Map<string, ZoneScoreCalculation>();
+    const map = new Map<string, ZoneScoreCalculation>();
+    for (let i = 0; i < geoData.features.length; i++) {
+      const f = geoData.features[i];
+      const calc = computeZoneVulnerability(f.properties, activeParams);
+      map.set(f.properties?.id, calc);
+    }
+    return map;
+  }, [geoData, activeParams]);
+
+  // Active dispatches for current state
+  const stateDispatches = useMemo(() => {
+    return dispatches.filter((d) => d.stateId === selectedStateId);
+  }, [dispatches, selectedStateId]);
+
+  // Districts in the selected state from loaded GeoData
+  const stateDistricts = useMemo(() => {
+    if (!geoData || !geoData.features) return [];
+    return geoData.features.filter((f: any) => {
+      const fState = f.properties?.state || f.properties?.NAME_1 || '';
+      return isStateMatch(fState, selectedStateProfile.stateName);
+    });
+  }, [geoData, selectedStateProfile]);
+
+  // Dynamic State Metrics derived strictly from the simulation engine's vulnerability math
+  const stateLiveMetrics = useMemo(() => {
+    if (!stateDistricts || stateDistricts.length === 0) {
+      const baseline = calculateStateVulnerabilityScore(selectedStateProfile.stateName);
+      return {
+        score: baseline,
+        riskTier: 'Moderate' as const,
+        impactedCount: 0,
+        totalCount: 0,
+        maxScore: baseline,
+        isImpacted: false,
+        summary: 'Baseline State Vulnerability (Outside Active Footprint)',
+      };
+    }
+
+    let maxScore = 0;
+    let totalActive = 0;
+    let countActive = 0;
+
+    for (const f of stateDistricts) {
+      const calc = districtCalculationsMap.get(f.properties?.id);
+      if (calc && calc.isWithinImpactRadius && calc.finalScore > 0) {
+        if (calc.finalScore > maxScore) maxScore = calc.finalScore;
+        totalActive += calc.finalScore;
+        countActive++;
+      }
+    }
+
+    if (countActive > 0) {
+      const avgActive = totalActive / countActive;
+      const score = Math.min(99, Math.round(0.70 * maxScore + 0.30 * avgActive));
+      const riskTier =
+        score >= 80 ? 'Critical' : score >= 60 ? 'Severe' : score >= 40 ? 'Moderate' : 'Low';
+
+      return {
+        score,
+        riskTier,
+        impactedCount: countActive,
+        totalCount: stateDistricts.length,
+        maxScore,
+        isImpacted: true,
+        summary: `${countActive}/${stateDistricts.length} Districts in ${activeParams.title} Crisis Footprint (Peak: ${maxScore}/100)`,
+      };
+    }
+
+    // Unaffected by current active disaster event
+    const baseline = calculateStateVulnerabilityScore(selectedStateProfile.stateName);
+    const disasterLabel = (activeParams?.type || disasterType || 'disaster').toUpperCase();
+    return {
+      score: Math.min(35, Math.round(baseline * 0.4)),
+      riskTier: 'Low' as const,
+      impactedCount: 0,
+      totalCount: stateDistricts.length,
+      maxScore: 0,
+      isImpacted: false,
+      summary: `All ${stateDistricts.length} Districts Outside Active ${disasterLabel} Radius`,
+    };
+  }, [stateDistricts, districtCalculationsMap, activeParams, selectedStateProfile]);
+
+  const stateVulnerabilityScore = stateLiveMetrics.score;
+
+  // Helper to compute live disaster impact for any state in India (for State Selector & Quick Filter)
+  const getStateLiveMetrics = useCallback(
+    (stateName: string) => {
+      if (!geoData || !geoData.features) {
+        return { score: 0, riskTier: 'Low', isImpacted: false, impactedCount: 0, totalCount: 0, maxScore: 0 };
+      }
+      const dists = geoData.features.filter((f: any) =>
+        isStateMatch(f.properties?.state || f.properties?.NAME_1, stateName)
+      );
+
+      let maxScore = 0;
+      let totalActive = 0;
+      let countActive = 0;
+
+      for (const f of dists) {
+        const calc = districtCalculationsMap.get(f.properties?.id);
+        if (calc && calc.isWithinImpactRadius && calc.finalScore > 0) {
+          if (calc.finalScore > maxScore) maxScore = calc.finalScore;
+          totalActive += calc.finalScore;
+          countActive++;
+        }
+      }
+
+      if (countActive > 0) {
+        const avgActive = totalActive / countActive;
+        const score = Math.min(99, Math.round(0.70 * maxScore + 0.30 * avgActive));
+        const riskTier =
+          score >= 80 ? 'Critical' : score >= 60 ? 'Severe' : score >= 40 ? 'Moderate' : 'Low';
+        return {
+          score,
+          riskTier,
+          isImpacted: true,
+          impactedCount: countActive,
+          totalCount: dists.length,
+          maxScore,
+        };
+      }
+
+      return {
+        score: 0,
+        riskTier: 'Stable',
+        isImpacted: false,
+        impactedCount: 0,
+        totalCount: dists.length,
+        maxScore: 0,
+      };
+    },
+    [geoData, districtCalculationsMap]
+  );
+
+  // Available Target District names for the New Dispatch modal (dynamically sorted by active disaster score)
+  const availableTargetDistricts = useMemo(() => {
+    if (stateDistricts.length > 0) {
+      return stateDistricts
+        .map((f: any) => {
+          const name = f.properties?.name || f.properties?.NAME_2;
+          const calc = districtCalculationsMap.get(f.properties?.id);
+          const vulnScore = calc ? calc.finalScore : f.properties?.vulnerabilityScore || 45;
+          const isImpacted = calc ? calc.isWithinImpactRadius && calc.finalScore > 0 : false;
+          const riskTier = vulnScore >= 80 ? 'Critical' : vulnScore >= 60 ? 'Severe' : vulnScore >= 40 ? 'Moderate' : 'Low';
+          return {
+            name,
+            vulnScore,
+            riskTier,
+            isImpacted,
+            primaryRisk: isImpacted ? `${activeParams.title} Zone` : selectedStateProfile.primaryDisasterRisk,
+            distanceKm: calc?.distanceToEpicenterKm || 0,
+          };
+        })
+        .sort((a, b) => b.vulnScore - a.vulnScore);
+    }
+    return stateGeoConfig.keyDistricts.map((d) => ({
+      name: d,
+      vulnScore: 50,
+      riskTier: 'Moderate' as const,
+      isImpacted: false,
+      primaryRisk: selectedStateProfile.primaryDisasterRisk,
+      distanceKm: 0,
+    }));
+  }, [stateDistricts, districtCalculationsMap, activeParams, stateGeoConfig, selectedStateProfile]);
+
+  // Pre-fill target district if not set
+  useEffect(() => {
+    if (availableTargetDistricts.length > 0 && !newTargetDistrict) {
+      setNewTargetDistrict(availableTargetDistricts[0].name);
+    }
+  }, [availableTargetDistricts, newTargetDistrict]);
+
+  // Pre-fill selected origin warehouse for active state
+  useEffect(() => {
+    if (stateWarehouses.length > 0) {
+      setSelectedOriginWarehouseId(stateWarehouses[0].id);
+    } else {
+      setSelectedOriginWarehouseId(WAREHOUSE_FACILITIES[0].id);
+    }
+  }, [selectedStateId, stateWarehouses]);
+
+  // Active Origin Warehouse for Dispatch
+  const activeOriginWarehouse = useMemo(() => {
+    if (selectedOriginWarehouseId) {
+      const found = WAREHOUSE_FACILITIES.find((w) => w.id === selectedOriginWarehouseId);
+      if (found) return found;
+    }
+    return stateWarehouses[0] || WAREHOUSE_FACILITIES[0];
+  }, [selectedOriginWarehouseId, stateWarehouses]);
+
+  // Dynamic Selected Target District Vulnerability Profile for the Dispatch Modal
+  const targetDistrictVulnerability = useMemo(() => {
+    if (!newTargetDistrict) return null;
+    const targetFeat = stateDistricts.find(
+      (f: any) => (f.properties?.name || f.properties?.NAME_2) === newTargetDistrict
+    );
+    const targetCoords = targetFeat?.properties?.centroid || [
+      stateGeoConfig.center[0],
+      stateGeoConfig.center[1],
+    ];
+
+    const calc = targetFeat ? districtCalculationsMap.get(targetFeat.properties?.id) : null;
+    const score = calc ? calc.finalScore : 50;
+    const riskTier = score >= 80 ? 'Critical' : score >= 60 ? 'Severe' : score >= 40 ? 'Moderate' : 'Low';
+    
+    // Disaster-driven smart resource recommendations
+    const recommendations: Array<{ type: keyof typeof RESOURCE_CATEGORIES; label: string; reason: string }> = [];
+    if (disasterType === 'flood') {
+      recommendations.push(
+        { type: 'floatingClinics', label: 'Inflatable Boat Clinics', reason: 'Critical for inundated flood plains' },
+        { type: 'waterMotorPumps', label: 'High-Capacity Dewatering Pumps', reason: 'Submerged urban drains & basements' },
+        { type: 'rationPackets', label: 'Family Ration Food Kits', reason: 'Cut-off islanded villages' }
+      );
+    } else if (disasterType === 'heatwave') {
+      recommendations.push(
+        { type: 'waterTankers', label: 'Potable Water Bowsers (10kL)', reason: 'Severe dehydration & water stress' },
+        { type: 'emergencyGenerators', label: 'Emergency DG Sets', reason: 'Powering primary health center chillers' },
+        { type: 'medicalFirstAidUnits', label: 'ORS & Heat-Stroke First Aid', reason: 'Cooling centers & trauma triage' }
+      );
+    } else {
+      recommendations.push(
+        { type: 'debrisMachinery', label: 'Heavy Debris Excavators', reason: 'Clearing uprooted trees & collapsed roads' },
+        { type: 'tarpTentKits', label: 'Disaster Relief Tents & Tarps', reason: 'Emergency shelter for displaced families' },
+        { type: 'emergencyGenerators', label: 'Mobile Floodlight Generators', reason: 'Grid blackout recovery' }
+      );
+    }
+
+    return {
+      districtName: newTargetDistrict,
+      stateName: selectedStateProfile.stateName,
+      vulnerabilityScore: score,
+      riskTier,
+      isImpacted: calc ? calc.isWithinImpactRadius && calc.finalScore > 0 : false,
+      distanceToEpicenterKm: calc?.distanceToEpicenterKm || 0,
+      hazardFactor: calc?.hazardFactor || 0,
+      exposureScore: calc?.exposureScore || 50,
+      sensitivityScore: calc?.sensitivityScore || 50,
+      lackOfCapacityScore: calc?.lackOfCopingCapacity || 50,
+      recommendedResources: recommendations,
+      coordinates: targetCoords,
+    };
+  }, [newTargetDistrict, stateDistricts, stateGeoConfig, districtCalculationsMap, disasterType, selectedStateProfile]);
+
+  // Calculated distance and estimated transit time to new target district
+  const estimatedRouteInfo = useMemo(() => {
+    if (!newTargetDistrict || !activeOriginWarehouse) return { distanceKm: 45, etaMinutes: 35, targetCoords: [stateGeoConfig.center[0], stateGeoConfig.center[1]] as [number, number] };
+
+    const targetFeat = stateDistricts.find(
+      (f: any) => (f.properties?.name || f.properties?.NAME_2) === newTargetDistrict
+    );
+    const targetCoords: [number, number] = targetFeat?.properties?.centroid || [
+      stateGeoConfig.center[0],
+      stateGeoConfig.center[1],
+    ];
+
+    const dist = calculateDistanceKm(activeOriginWarehouse.coordinates, targetCoords);
+    const speedKmH =
+      newTransportMode === 'IAF Airlift'
+        ? 280
+        : newTransportMode === 'Waterway Fleet / Boat'
+        ? 22
+        : 45;
+    const eta = Math.max(12, Math.round((dist / speedKmH) * 60) + 10);
+
+    return { distanceKm: Math.round(dist), etaMinutes: eta, targetCoords };
+  }, [newTargetDistrict, activeOriginWarehouse, stateDistricts, stateGeoConfig, newTransportMode]);
+
+  // Handle Creating a New Dispatch Mission
+  const handleCreateDispatch = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTargetDistrict) return;
+
+    const targetCoords = estimatedRouteInfo.targetCoords;
+    const cat = RESOURCE_CATEGORIES[newResourceType];
+    const newMission: DispatchMission = {
+      id: `DSP-${Math.floor(1000 + Math.random() * 9000)}`,
+      stateId: selectedStateId,
+      targetDistrict: newTargetDistrict,
+      targetCoords,
+      originDepot: `${activeOriginWarehouse.facilityName} (${activeOriginWarehouse.district})`,
+      originCoords: activeOriginWarehouse.coordinates,
+      resourceType: newResourceType,
+      quantity: newQuantity,
+      unitLabel: cat.unit,
+      transportMode: newTransportMode,
+      status: 'In Transit',
+      progress: 5,
+      etaMinutes: estimatedRouteInfo.etaMinutes,
+      priority: newPriority,
+      dispatchedAt: 'Just now',
+    };
+
+    setDispatches((prev) => [newMission, ...prev]);
+    setShowNewDispatchModal(false);
+    setActiveLeftTab('dispatches');
+    setIsLeftPanelOpen(true);
+  };
+
+  // Dynamic Selected district detailed profile (when clicking a polygon on the map)
+  const inspectedDistrictProfile = useMemo(() => {
+    if (!selectedDistrictProps) return null;
+    const distId = selectedDistrictProps.id;
+    const calc = districtCalculationsMap.get(distId);
+    const score = calc ? calc.finalScore : selectedDistrictProps.vulnerabilityScore || 45;
+    const riskTier = score >= 80 ? 'Critical' : score >= 60 ? 'Severe' : score >= 40 ? 'Moderate' : 'Low';
+
+    return {
+      districtName: selectedDistrictProps.name || selectedDistrictProps.NAME_2 || 'District',
+      stateName: selectedDistrictProps.state || selectedDistrictProps.NAME_1 || selectedStateProfile.stateName,
+      vulnerabilityScore: score,
+      inherentScore: calc?.inherentVulnerabilityScore || 45,
+      riskTier,
+      isImpacted: calc ? calc.isWithinImpactRadius && calc.finalScore > 0 : false,
+      distanceToEpicenterKm: calc?.distanceToEpicenterKm || 0,
+      hazardFactor: calc?.hazardFactor || 0,
+      exposureScore: calc?.exposureScore || selectedDistrictProps.exposureScore || 50,
+      sensitivityScore: calc?.sensitivityScore || selectedDistrictProps.sensitivityScore || 50,
+      lackOfCapacityScore: calc?.lackOfCopingCapacity || selectedDistrictProps.lackOfCapacityScore || 50,
+      population: selectedDistrictProps.population || 1200000,
+      populationDensity: selectedDistrictProps.populationDensity || 450,
+      povertyIndex: selectedDistrictProps.povertyIndex || 35,
+    };
+  }, [selectedDistrictProps, districtCalculationsMap, selectedStateProfile]);
+
+  // Map Layers construction
+  const layers = useMemo(() => {
+    if (!geoData) return [];
+
+    const normSelectedState = selectedStateProfile.stateName.toLowerCase().trim();
+    const layerList: any[] = [];
+
+    // 1. Dynamic District Polygons with Real-Time Disaster Vulnerability Color-Coding
+    layerList.push(
+      new GeoJsonLayer({
+        id: 'dispatch-district-polygons',
+        data: geoData,
+        pickable: true,
+        stroked: true,
+        filled: true,
+        lineWidthUnits: 'pixels',
+        getLineColor: (d: any) => {
+          const isSelectedDist = selectedDistrictProps && selectedDistrictProps.id === d.properties?.id;
+          if (isSelectedDist) {
+            return [59, 130, 246, 255]; // Vivid Cyan/Blue border for selected district
+          }
+
+          const isCurrentState = isStateMatch(
+            d.properties?.state || d.properties?.NAME_1,
+            selectedStateProfile.stateName
+          );
+
+          const calc = districtCalculationsMap.get(d.properties?.id);
+          const score = calc ? calc.finalScore : d.properties?.vulnerabilityScore || 45;
+          const isWithinImpact = calc ? calc.isWithinImpactRadius && calc.finalScore > 0 : false;
+
+          if (isCurrentState) {
+            // Prominent electric blue boundary outline for selected state (e.g. Odisha, Bihar, etc.)
+            return [59, 130, 246, 255];
+          }
+
+          if (isWithinImpact) {
+            const [r, g, b] = getZoneRGB(score, true);
+            return [r, g, b, 230]; // Vivid alert boundary for disaster impact zone
+          }
+
+          return [255, 255, 255, 18];
+        },
+        getLineWidth: (d: any) => {
+          const isSelectedDist = selectedDistrictProps && selectedDistrictProps.id === d.properties?.id;
+          if (isSelectedDist) return 3.5;
+
+          const isCurrentState = isStateMatch(
+            d.properties?.state || d.properties?.NAME_1,
+            selectedStateProfile.stateName
+          );
+          if (isCurrentState) return 2.4; // Bold blue outline for selected state
+
+          const calc = districtCalculationsMap.get(d.properties?.id);
+          const isWithinImpact = calc ? calc.isWithinImpactRadius && calc.finalScore > 0 : false;
+          if (isWithinImpact) return 1.6;
+
+          return 0.5;
+        },
+        getFillColor: (d: any) => {
+          const isSelectedDist = selectedDistrictProps && selectedDistrictProps.id === d.properties?.id;
+          if (isSelectedDist) {
+            return [59, 130, 246, 175]; // Vivid highlight on selected district
+          }
+
+          const calc = districtCalculationsMap.get(d.properties?.id);
+          const score = calc ? calc.finalScore : 0;
+          const isWithinImpact = calc ? calc.isWithinImpactRadius && calc.finalScore > 0 : false;
+
+          // 1. If within active disaster impact radius, use EXACT vulnerability RGB colors from simulation engine
+          if (isWithinImpact && score > 0) {
+            const [r, g, b] = getZoneRGB(score, true);
+            const isCurrentState = isStateMatch(
+              d.properties?.state || d.properties?.NAME_1,
+              selectedStateProfile.stateName
+            );
+            const alpha = layerToggles.vulnerabilityTint ? (isCurrentState ? 195 : 160) : 110;
+            return [r, g, b, alpha];
+          }
+
+          // 2. If in current selected state (outside active disaster footprint)
+          const isCurrentState = isStateMatch(
+            d.properties?.state || d.properties?.NAME_1,
+            selectedStateProfile.stateName
+          );
+          if (isCurrentState) {
+            return [30, 58, 102, layerToggles.vulnerabilityTint ? 80 : 45];
+          }
+
+          // 3. Nationwide background districts
+          return [15, 23, 42, 20];
+        },
+        updateTriggers: {
+          getFillColor: [selectedStateId, selectedDistrictProps?.id, layerToggles.vulnerabilityTint, activeParams, districtCalculationsMap],
+          getLineColor: [selectedStateId, selectedDistrictProps?.id, activeParams, districtCalculationsMap],
+          getLineWidth: [selectedStateId, selectedDistrictProps?.id, activeParams, districtCalculationsMap],
+        },
+        dataComparator: () => true,
+      })
+    );
+
+    // 2. Disaster Epicenter & Impact Radius Ring
+    if (epicenter && epicenter.length === 2) {
+      const radiusMeters = (customRadiusKm || currentSeverity.defaultRadiusKm) * 1000;
+      layerList.push(
+        new ScatterplotLayer({
+          id: 'dispatch-disaster-footprint-ring',
+          data: [{ position: [epicenter[0], epicenter[1], 10] }],
+          getPosition: (d: any) => d.position,
+          getRadius: radiusMeters,
+          stroked: true,
+          filled: true,
+          lineWidthMinPixels: 2,
+          getFillColor:
+            disasterType === 'flood'
+              ? [59, 130, 246, 25]
+              : disasterType === 'heatwave'
+              ? [239, 68, 68, 25]
+              : [168, 85, 247, 25],
+          getLineColor:
+            disasterType === 'flood'
+              ? [96, 165, 250, 220]
+              : disasterType === 'heatwave'
+              ? [248, 113, 113, 220]
+              : [192, 132, 252, 220],
+          pickable: false,
+        })
+      );
+
+      layerList.push(
+        new ScatterplotLayer({
+          id: 'dispatch-disaster-epicenter-beacon',
+          data: [{ position: [epicenter[0], epicenter[1], 20] }],
+          getPosition: (d: any) => d.position,
+          getRadius: 18000,
+          radiusMinPixels: 9,
+          radiusMaxPixels: 22,
+          filled: true,
+          stroked: true,
+          getFillColor:
+            disasterType === 'flood'
+              ? [59, 130, 246, 240]
+              : disasterType === 'heatwave'
+              ? [239, 68, 68, 240]
+              : [168, 85, 247, 240],
+          getLineColor: [255, 255, 255, 255],
+          lineWidthMinPixels: 2.5,
+          pickable: true,
+        })
+      );
+    }
+
+    // 3. Active Supply Lines & Convoys (Connecting Relief Warehouses to Affected Districts)
+    if (layerToggles.convoys && stateDispatches.length > 0) {
+      const lineData = stateDispatches.map((disp) => ({
+        id: disp.id,
+        sourcePosition: Array.isArray(disp.originCoords) && disp.originCoords.length >= 2 ? disp.originCoords : [78.9629, 20.5937],
+        targetPosition: Array.isArray(disp.targetCoords) && disp.targetCoords.length >= 2 ? disp.targetCoords : [78.9629, 20.5937],
+        color:
+          disp.priority === 'CRITICAL'
+            ? [239, 68, 68, 220]
+            : disp.priority === 'HIGH'
+            ? [245, 158, 11, 220]
+            : [59, 130, 246, 220],
+      }));
+
+      layerList.push(
+        new LineLayer({
+          id: 'dispatch-supply-routes',
+          data: lineData,
+          getSourcePosition: (d: any) => d.sourcePosition,
+          getTargetPosition: (d: any) => d.targetPosition,
+          getColor: (d: any) => d.color,
+          getWidth: 3,
+          widthUnits: 'pixels',
+          pickable: true,
+        })
+      );
+
+      // Moving Convoy Pulse Beacons along route
+      const movingBeacons = stateDispatches.map((disp) => {
+        const progressRatio = Math.max(0.02, Math.min(0.98, (disp.progress || 10) / 100));
+        const [x1, y1] = Array.isArray(disp.originCoords) && disp.originCoords.length >= 2 ? disp.originCoords : [78.9629, 20.5937];
+        const [x2, y2] = Array.isArray(disp.targetCoords) && disp.targetCoords.length >= 2 ? disp.targetCoords : [78.9629, 20.5937];
+        const curLng = x1 + (x2 - x1) * progressRatio;
+        const curLat = y1 + (y2 - y1) * progressRatio;
+
+        return {
+          id: `${disp.id}-beacon`,
+          position: [curLng, curLat, 500],
+          resourceType: disp.resourceType,
+          label: disp.id,
+          priority: disp.priority,
+          progress: disp.progress,
+        };
+      });
+
+      layerList.push(
+        new ScatterplotLayer({
+          id: 'dispatch-moving-convoys',
+          data: movingBeacons,
+          getPosition: (d: any) => d.position,
+          getRadius: 5500,
+          radiusMinPixels: 7,
+          radiusMaxPixels: 15,
+          filled: true,
+          stroked: true,
+          getFillColor: (d: any) =>
+            d.priority === 'CRITICAL'
+              ? [239, 68, 68, 240]
+              : d.priority === 'HIGH'
+              ? [245, 158, 11, 240]
+              : [59, 130, 246, 240],
+          getLineColor: [255, 255, 255, 255],
+          lineWidthMinPixels: 2,
+          pickable: true,
+        })
+      );
+    }
+
+    // 4. Official NDMA/SDMA Relief Warehouses (National Dataset)
+    if (layerToggles.warehouses) {
+      layerList.push(
+        new ScatterplotLayer({
+          id: 'dispatch-relief-warehouses',
+          data: WAREHOUSE_FACILITIES,
+          getPosition: (d: WarehouseFacility) => d.coordinates,
+          getRadius: (d: WarehouseFacility) => {
+            const isStateWH = stateWarehouses.some((sw) => sw.id === d.id);
+            return isStateWH ? 8500 : 5000;
+          },
+          radiusMinPixels: 5,
+          radiusMaxPixels: 12,
+          filled: true,
+          stroked: true,
+          getFillColor: (d: WarehouseFacility) => {
+            const isSelected = selectedWarehouse?.id === d.id;
+            if (isSelected) return [250, 204, 21, 255]; // Yellow highlight
+            const isStateWH = stateWarehouses.some((sw) => sw.id === d.id);
+            return isStateWH ? [16, 185, 129, 240] : [100, 116, 139, 140]; // Emerald vs muted slate
+          },
+          getLineColor: [255, 255, 255, 220],
+          lineWidthMinPixels: 1.5,
+          pickable: true,
+          onClick: (info: any) => {
+            if (info.object) {
+              setSelectedWarehouse(info.object);
+              setSelectedDistrictProps(null);
+            }
+          },
+        })
+      );
+    }
+
+    return layerList;
+  }, [
+    geoData,
+    selectedStateProfile,
+    selectedStateId,
+    selectedDistrictProps,
+    selectedWarehouse,
+    layerToggles,
+    stateDispatches,
+    stateWarehouses,
+    districtCalculationsMap,
+    activeParams,
+    getZoneRGB,
+    epicenter,
+    customRadiusKm,
+    currentSeverity,
+    disasterType,
+  ]);
+
+  // Handle map clicks for district selection
+  const handleMapClick = (info: any) => {
+    if (info.object && info.layer?.id === 'dispatch-district-polygons') {
+      setSelectedWarehouse(null);
+      setSelectedDistrictProps(info.object.properties);
+    }
+  };
+
+  return (
+    <div className="relative w-full h-full bg-[#070a12] overflow-hidden rounded-2xl border border-[#151f32] select-none">
+      {/* Loading Overlay */}
+      {loading && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-[#070a12]/85 backdrop-blur-md">
+          <div className="flex flex-col items-center gap-3">
+            <Radio className="animate-spin text-blue-500" size={36} />
+            <p className="text-slate-200 font-semibold tracking-wide text-sm">
+              Initializing State Dispatch Map & Vulnerability Telemetry...
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Error Overlay */}
+      {loadError && !loading && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-[#070a12]/90 backdrop-blur-md p-6">
+          <div className="flex flex-col items-center gap-3 max-w-sm text-center bg-red-950/40 border border-red-800/50 p-6 rounded-2xl">
+            <AlertTriangle className="text-red-400" size={36} />
+            <h4 className="text-slate-200 font-bold text-base">Failed to Load Map Data</h4>
+            <p className="text-xs text-slate-400">{loadError}</p>
+          </div>
+        </div>
+      )}
+
+      {/* TOP HEADER: Streamlined Navigation, Telemetry Pill & Tactical Actions */}
+      <header className="absolute top-4 left-4 right-4 z-40 flex flex-wrap items-center justify-between gap-3 pointer-events-none">
+        {/* Left: State Dropdown Selector with Quick Navigation */}
+        <div className="flex items-center gap-2 pointer-events-auto" ref={dropdownRef}>
+          {/* Previous State Button */}
+          <button
+            onClick={() => handleCycleState('prev')}
+            className="h-10 w-9 flex items-center justify-center bg-[#090d16]/95 border border-[#1b2a44] hover:border-blue-500/50 hover:bg-[#121c2e] text-slate-300 hover:text-white rounded-xl backdrop-blur-xl transition-all shadow-xl cursor-pointer"
+            title="Previous State"
+          >
+            <ChevronLeft size={16} />
+          </button>
+
+          {/* Main State Dropdown Trigger */}
+          <div className="relative z-50">
+            <button
+              onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+              className="h-10 min-w-[260px] sm:min-w-[300px] px-3.5 flex items-center justify-between gap-3 bg-[#090d16]/95 border border-[#1b2a44] hover:border-blue-500/60 rounded-xl backdrop-blur-xl transition-all shadow-xl text-left cursor-pointer"
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-6 h-6 rounded-lg bg-blue-500/20 border border-blue-500/40 flex items-center justify-center text-blue-400 font-mono text-[11px] font-bold shrink-0">
+                  {selectedStateProfile.stateCode}
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-slate-100 truncate">
+                      {selectedStateProfile.stateName}
+                    </span>
+                    <span className="text-[9px] px-1.5 py-0.2 rounded bg-blue-500/15 text-blue-400 font-bold uppercase tracking-wider border border-blue-500/20">
+                      {selectedStateProfile.region}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <ChevronDown
+                size={14}
+                className={`text-slate-400 transition-transform duration-200 shrink-0 ${
+                  isDropdownOpen ? 'rotate-180 text-blue-400' : ''
+                }`}
+              />
+            </button>
+
+            {/* Dropdown Menu Modal */}
+            <AnimatePresence>
+              {isDropdownOpen && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -10, scale: 0.98 }}
+                  transition={{ duration: 0.15 }}
+                  className="absolute top-12 left-0 w-[340px] sm:w-[380px] max-h-[460px] bg-[#090d16] border border-[#1e2f4d] rounded-2xl shadow-2xl backdrop-blur-2xl z-50 overflow-hidden flex flex-col"
+                >
+                  {/* Search and Region Tabs */}
+                  <div className="p-3 border-b border-[#15233c] bg-[#070b14]/80 space-y-2">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={13} />
+                      <input
+                        type="text"
+                        placeholder="Search state, capital, or risk..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        autoFocus
+                        className="w-full pl-8 pr-3 py-1.5 bg-[#0d1524] border border-[#1b2b46] rounded-xl text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                      />
+                      {searchQuery && (
+                        <button
+                          onClick={() => setSearchQuery('')}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200"
+                        >
+                          <X size={12} />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Region Filters */}
+                    <div className="flex items-center gap-1 overflow-x-auto pb-1 scrollbar-none">
+                      {REGIONS.map((reg) => (
+                        <button
+                          key={reg}
+                          onClick={() => setSelectedRegionFilter(reg)}
+                          className={`px-2 py-0.5 rounded-lg text-[10px] font-semibold whitespace-nowrap transition-all ${
+                            selectedRegionFilter === reg
+                              ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20'
+                              : 'text-slate-400 hover:text-slate-200 hover:bg-[#111c30]'
+                          }`}
+                        >
+                          {reg}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                    {/* Scrollable State List */}
+                  <div className="flex-1 overflow-y-auto p-2 space-y-1 scrollbar-thin scrollbar-thumb-slate-800 max-h-[320px]">
+                    {filteredStates.length === 0 ? (
+                      <div className="p-6 text-center text-xs text-slate-400">
+                        No states matching "{searchQuery}"
+                      </div>
+                    ) : (
+                      filteredStates
+                        .slice()
+                        .sort((a, b) => {
+                          const mA = getStateLiveMetrics(a.stateName);
+                          const mB = getStateLiveMetrics(b.stateName);
+                          if (mA.isImpacted !== mB.isImpacted) {
+                            return mA.isImpacted ? -1 : 1;
+                          }
+                          return mB.score - mA.score;
+                        })
+                        .map((st) => {
+                          const isSelected = st.id === selectedStateId;
+                          const activeDispCount = dispatches.filter((d) => d.stateId === st.id).length;
+                          const live = getStateLiveMetrics(st.stateName);
+
+                          return (
+                            <button
+                              key={st.id}
+                              onClick={() => handleSelectState(st.id)}
+                              className={`w-full flex items-center justify-between p-2.5 rounded-xl text-left transition-all ${
+                                isSelected
+                                  ? 'bg-blue-600/20 border border-blue-500/40 text-slate-100'
+                                  : 'hover:bg-[#101a2c] text-slate-300 border border-transparent'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <div
+                                  className={`w-7 h-7 rounded-lg flex items-center justify-center font-mono text-[11px] font-bold shrink-0 ${
+                                    isSelected
+                                      ? 'bg-blue-500 text-white shadow-md shadow-blue-500/30'
+                                      : live.isImpacted
+                                      ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                                      : 'bg-[#15233c] text-blue-400'
+                                  }`}
+                                >
+                                  {st.stateCode}
+                                </div>
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs font-bold text-slate-100 truncate">
+                                      {st.stateName}
+                                    </span>
+                                    {live.isImpacted ? (
+                                      <span
+                                        className={`text-[9px] px-1.5 py-0.5 rounded font-bold font-mono ${
+                                          live.score >= 72
+                                            ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                                            : live.score >= 50
+                                            ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30'
+                                            : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                                        }`}
+                                      >
+                                        V: {live.score} • {live.impactedCount} affected
+                                      </span>
+                                    ) : (
+                                      <span className="text-[9px] px-1.5 py-0.5 rounded font-mono text-slate-400 bg-slate-800/40 border border-slate-700/30">
+                                        Stable (0)
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="text-[10px] text-slate-400 truncate mt-0.5">
+                                    {live.isImpacted
+                                      ? `${live.impactedCount}/${live.totalCount} Districts in Active ${(activeParams?.type || disasterType || 'hazard').toUpperCase()} Zone`
+                                      : `Outside Active Footprint • ${st.primaryDisasterRisk}`}
+                                  </p>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-2 shrink-0 ml-2">
+                                {activeDispCount > 0 && (
+                                  <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-400 font-bold border border-red-500/30 flex items-center gap-1 animate-pulse">
+                                    <Radio size={9} />
+                                    {activeDispCount}
+                                  </span>
+                                )}
+                                {isSelected && <CheckCircle2 size={14} className="text-blue-400" />}
+                              </div>
+                            </button>
+                          );
+                        })
+                    )}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          {/* Next State Button */}
+          <button
+            onClick={() => handleCycleState('next')}
+            className="h-10 w-9 flex items-center justify-center bg-[#090d16]/95 border border-[#1b2a44] hover:border-blue-500/50 hover:bg-[#121c2e] text-slate-300 hover:text-white rounded-xl backdrop-blur-xl transition-all shadow-xl cursor-pointer"
+            title="Next State"
+          >
+            <ChevronRight size={16} />
+          </button>
+        </div>
+
+        {/* Center: Live Disaster Impact HUD & State Risk Telemetry */}
+        <div className="hidden lg:flex items-center gap-2.5 bg-[#090d16]/95 border border-[#17243c] px-3.5 py-2 rounded-xl backdrop-blur-xl pointer-events-auto shadow-xl">
+          {/* Active Disaster Scenario Badge */}
+          <div className="flex items-center gap-2 border-r border-[#15233c] pr-3">
+            <div
+              className={`w-6 h-6 rounded-lg flex items-center justify-center text-white shrink-0 ${
+                disasterType === 'flood'
+                  ? 'bg-blue-600 shadow-sm shadow-blue-500/30'
+                  : disasterType === 'heatwave'
+                  ? 'bg-red-600 shadow-sm shadow-red-500/30'
+                  : 'bg-purple-600 shadow-sm shadow-purple-500/30'
+              }`}
+            >
+              {disasterType === 'flood' ? (
+                <Waves size={13} />
+              ) : disasterType === 'heatwave' ? (
+                <Flame size={13} />
+              ) : (
+                <Wind size={13} />
+              )}
+            </div>
+            <div className="flex flex-col text-left">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-bold text-slate-100">{activeParams.title}</span>
+                <span className="text-[9px] px-1.5 py-0.2 rounded font-mono font-bold bg-white/10 text-slate-300">
+                  {currentSeverity.name}
+                </span>
+              </div>
+              <span className="text-[10px] text-slate-400 truncate max-w-[180px]">
+                {epicenterName}
+              </span>
+            </div>
+
+            {/* Focus Epicenter Button */}
+            <button
+              onClick={() => {
+                if (epicenter && epicenter.length === 2) {
+                  // Find matching state for epicenter or fly to epicenter coords
+                  setViewState({
+                    longitude: epicenter[0],
+                    latitude: epicenter[1],
+                    zoom: 6.8,
+                    pitch: is3DMode ? 28 : 0,
+                    bearing: 0,
+                    // @ts-ignore
+                    transitionDuration: 1200,
+                    transitionInterpolator: new FlyToInterpolator(),
+                  });
+                }
+              }}
+              className="ml-1 px-2 py-1 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-all cursor-pointer"
+              title="Focus Camera on Disaster Epicenter"
+            >
+              <Crosshair size={11} />
+              <span>Epicenter</span>
+            </button>
+          </div>
+
+          {/* State Risk Index */}
+          <div className="flex items-center gap-2 border-r border-[#15233c] pr-3">
+            <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">State Risk:</span>
+            <span
+              className={`text-xs font-black font-mono px-2 py-0.5 rounded-md flex items-center gap-1.5 ${
+                stateLiveMetrics.isImpacted
+                  ? stateVulnerabilityScore >= 72
+                    ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                    : stateVulnerabilityScore >= 50
+                    ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30'
+                    : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                  : 'bg-slate-800/40 text-slate-300 border border-slate-700/30'
+              }`}
+              title={stateLiveMetrics.summary}
+            >
+              <div
+                className={`w-1.5 h-1.5 rounded-full ${
+                  stateLiveMetrics.isImpacted
+                    ? stateVulnerabilityScore >= 72
+                      ? 'bg-red-400 animate-pulse'
+                      : stateVulnerabilityScore >= 50
+                      ? 'bg-orange-400'
+                      : 'bg-amber-400'
+                    : 'bg-emerald-400'
+                }`}
+              />
+              <span>
+                {stateLiveMetrics.isImpacted
+                  ? `${stateVulnerabilityScore} / 100 [${stateLiveMetrics.riskTier}]`
+                  : 'Stable (0/100)'}
+              </span>
+              {stateLiveMetrics.isImpacted && (
+                <span className="text-[10px] opacity-75 font-normal">
+                  ({stateLiveMetrics.impactedCount}/{stateLiveMetrics.totalCount})
+                </span>
+              )}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-emerald-400 font-mono text-[11px]">
+              {selectedStateProfile.sdrfBattalions} SDRF Battalions
+            </span>
+          </div>
+        </div>
+
+        {/* Right: Tactical Actions & Panel Toggles */}
+        <div className="flex items-center gap-2 pointer-events-auto">
+          {/* Toggle Left SDRF Drawer Button */}
+          <button
+            onClick={() => setIsLeftPanelOpen(!isLeftPanelOpen)}
+            className={`h-10 px-3 flex items-center gap-1.5 rounded-xl text-xs font-bold border backdrop-blur-xl transition-all shadow-xl cursor-pointer ${
+              isLeftPanelOpen
+                ? 'bg-blue-600/30 border-blue-500/60 text-blue-300'
+                : 'bg-[#090d16]/95 border-[#1b2a44] text-slate-300 hover:text-white hover:bg-[#121c2e]'
+            }`}
+            title="Toggle Resource & Dispatches Panel"
+          >
+            <Layers size={14} />
+            <span className="hidden sm:inline">Force & Logistics</span>
+          </button>
+
+          {/* Auto Tour Toggle */}
+          <button
+            onClick={() => setIsAutoTouring(!isAutoTouring)}
+            className={`h-10 px-3 flex items-center gap-1.5 rounded-xl text-xs font-bold border backdrop-blur-xl transition-all shadow-xl cursor-pointer ${
+              isAutoTouring
+                ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-amber-500/20 animate-pulse'
+                : 'bg-[#090d16]/95 border-[#1b2a44] text-slate-300 hover:text-white hover:bg-[#121c2e]'
+            }`}
+            title="Auto Cycle across States"
+          >
+            {isAutoTouring ? <Pause size={13} /> : <Play size={13} />}
+            <span className="hidden sm:inline">{isAutoTouring ? 'Touring' : 'Auto Tour'}</span>
+          </button>
+
+          {/* 2D / 3D Tilt Toggle */}
+          <button
+            onClick={handleToggle3D}
+            className={`h-10 px-3 flex items-center gap-1.5 rounded-xl text-xs font-bold border backdrop-blur-xl transition-all shadow-xl cursor-pointer ${
+              is3DMode
+                ? 'bg-blue-600/30 border-blue-500/60 text-blue-300'
+                : 'bg-[#090d16]/95 border-[#1b2a44] text-slate-300 hover:text-white hover:bg-[#121c2e]'
+            }`}
+            title="Toggle 2D / 3D Oblique View"
+          >
+            <Compass size={13} className={is3DMode ? 'rotate-45 text-blue-400' : ''} />
+            <span>{is3DMode ? '3D' : '2D'}</span>
+          </button>
+
+          {/* Reset Camera to State */}
+          <button
+            onClick={() => flyToState(selectedStateId)}
+            className="h-10 w-10 flex items-center justify-center bg-[#090d16]/95 border border-[#1b2a44] hover:border-blue-500/50 hover:bg-[#121c2e] text-slate-300 hover:text-white rounded-xl backdrop-blur-xl transition-all shadow-xl cursor-pointer"
+            title="Recenter Camera on State"
+          >
+            <RotateCcw size={14} />
+          </button>
+        </div>
+      </header>
+
+      {/* DeckGL & Basemap Container */}
+      <DeckGL
+        viewState={viewState}
+        onViewStateChange={({ viewState: vs }: any) => setViewState(vs)}
+        controller={true}
+        layers={layers}
+        onClick={handleMapClick}
+        getCursor={({ isHovering }) => (isHovering ? 'pointer' : 'default')}
+      >
+        <MapGL
+          mapLib={maplibregl}
+          mapStyle="https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json"
+          reuseMaps
+          attributionControl={false}
+        />
+      </DeckGL>
+
+      {/* LEFT FLOATING PANEL: SDRF Resources & Live Dispatches Drawer */}
+      <AnimatePresence>
+        {isLeftPanelOpen && (
+          <motion.div
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -20 }}
+            className="absolute top-18 left-4 z-30 w-80 sm:w-88 max-h-[calc(100vh-140px)] flex flex-col bg-[#090d16]/92 border border-[#172338] backdrop-blur-2xl rounded-2xl shadow-2xl p-4 pointer-events-auto space-y-3"
+          >
+            {/* Header & Tabs */}
+            <div className="flex items-center justify-between border-b border-[#141f32] pb-2.5">
+              <div>
+                <h3 className="text-xs font-bold text-slate-100 uppercase tracking-wider flex items-center gap-1.5">
+                  <ShieldAlert size={14} className="text-blue-400" />
+                  <span>{selectedStateProfile.stateName} Logistics</span>
+                </h3>
+                <p className="text-[10px] text-slate-400 font-mono">
+                  HQ: {selectedStateProfile.capital}
+                </p>
+              </div>
+              <button
+                onClick={() => setIsLeftPanelOpen(false)}
+                className="p-1 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg cursor-pointer"
+                title="Collapse Panel"
+              >
+                <X size={15} />
+              </button>
+            </div>
+
+            {/* Sub-Tabs: Inventory vs Live Dispatches */}
+            <div className="flex items-center gap-1 bg-[#060a14] p-1 rounded-xl border border-[#141f32]">
+              <button
+                onClick={() => setActiveLeftTab('inventory')}
+                className={`flex-1 py-1.5 text-[11px] font-bold rounded-lg transition-all cursor-pointer ${
+                  activeLeftTab === 'inventory'
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                SDRF Resources
+              </button>
+              <button
+                onClick={() => setActiveLeftTab('dispatches')}
+                className={`flex-1 py-1.5 text-[11px] font-bold rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer ${
+                  activeLeftTab === 'dispatches'
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <span>Dispatches</span>
+                {stateDispatches.length > 0 && (
+                  <span className="w-4 h-4 rounded-full bg-red-500 text-white text-[9px] font-mono font-bold flex items-center justify-center">
+                    {stateDispatches.length}
+                  </span>
+                )}
+              </button>
+            </div>
+
+            {/* TAB 1: Force & Resource Inventory */}
+            {activeLeftTab === 'inventory' && (
+              <div className="space-y-3 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-slate-800 max-h-[420px]">
+                {/* SDRF Battalion Info */}
+                <div className="p-2.5 bg-[#0a1120] border border-[#15233c] rounded-xl flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Users size={14} className="text-emerald-400" />
+                    <span className="text-xs font-semibold text-slate-200">SDRF Field Battalions</span>
+                  </div>
+                  <span className="font-mono text-xs font-bold text-emerald-400">
+                    {selectedStateProfile.sdrfBattalions} Active
+                  </span>
+                </div>
+
+                {/* 6 Grid Resources */}
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  {/* 1. Water Bowsers */}
+                  <div className="p-2 bg-[#0c1322] border border-[#16233a] rounded-xl flex items-center justify-between gap-1.5">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <Droplets size={13} className="text-cyan-400 shrink-0" />
+                      <span className="text-[11px] text-slate-300 font-medium truncate">Water Bowsers</span>
+                    </div>
+                    <div className="text-right shrink-0 font-mono text-[11px] font-bold text-cyan-300">
+                      {selectedStateProfile.resources.waterTankers.active} /{' '}
+                      <span className="text-slate-400">{selectedStateProfile.resources.waterTankers.total}</span>
+                    </div>
+                  </div>
+
+                  {/* 2. Heavy Earthmovers */}
+                  <div className="p-2 bg-[#0c1322] border border-[#16233a] rounded-xl flex items-center justify-between gap-1.5">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <Truck size={13} className="text-amber-400 shrink-0" />
+                      <span className="text-[11px] text-slate-300 font-medium truncate">Earthmovers</span>
+                    </div>
+                    <div className="text-right shrink-0 font-mono text-[11px] font-bold text-amber-300">
+                      {selectedStateProfile.resources.debrisMachinery.active} /{' '}
+                      <span className="text-slate-400">{selectedStateProfile.resources.debrisMachinery.total}</span>
+                    </div>
+                  </div>
+
+                  {/* 3. Emergency Generators */}
+                  <div className="p-2 bg-[#0c1322] border border-[#16233a] rounded-xl flex items-center justify-between gap-1.5">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <Zap size={13} className="text-yellow-400 shrink-0" />
+                      <span className="text-[11px] text-slate-300 font-medium truncate">Generators</span>
+                    </div>
+                    <div className="text-right shrink-0 font-mono text-[11px] font-bold text-yellow-300">
+                      {selectedStateProfile.resources.emergencyGenerators.active} /{' '}
+                      <span className="text-slate-400">{selectedStateProfile.resources.emergencyGenerators.total}</span>
+                    </div>
+                  </div>
+
+                  {/* 4. Family Rations */}
+                  <div className="p-2 bg-[#0c1322] border border-[#16233a] rounded-xl flex items-center justify-between gap-1.5">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <Package size={13} className="text-emerald-400 shrink-0" />
+                      <span className="text-[11px] text-slate-300 font-medium truncate">Rations</span>
+                    </div>
+                    <div className="text-right shrink-0 font-mono text-[11px] font-bold text-emerald-300">
+                      {(selectedStateProfile.resources.rationPackets.total / 1000).toFixed(0)}k
+                    </div>
+                  </div>
+
+                  {/* 5. Tents & Tarps */}
+                  <div className="p-2 bg-[#0c1322] border border-[#16233a] rounded-xl flex items-center justify-between gap-1.5">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <Tent size={13} className="text-purple-400 shrink-0" />
+                      <span className="text-[11px] text-slate-300 font-medium truncate">Tents / Tarps</span>
+                    </div>
+                    <div className="text-right shrink-0 font-mono text-[11px] font-bold text-purple-300">
+                      {(selectedStateProfile.resources.tarpTentKits.total / 1000).toFixed(0)}k
+                    </div>
+                  </div>
+
+                  {/* 6. Dewatering Pumps */}
+                  <div className="p-2 bg-[#0c1322] border border-[#16233a] rounded-xl flex items-center justify-between gap-1.5">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <Gauge size={13} className="text-blue-400 shrink-0" />
+                      <span className="text-[11px] text-slate-300 font-medium truncate">Trash Pumps</span>
+                    </div>
+                    <div className="text-right shrink-0 font-mono text-[11px] font-bold text-blue-300">
+                      {selectedStateProfile.resources.waterMotorPumps.active} /{' '}
+                      <span className="text-slate-400">{selectedStateProfile.resources.waterMotorPumps.total}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Authorize New Dispatch Action Button */}
+                <button
+                  onClick={() => setShowNewDispatchModal(true)}
+                  className="w-full py-2.5 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-blue-500/25 flex items-center justify-center gap-2 transition-all cursor-pointer"
+                >
+                  <Send size={14} />
+                  <span>Authorize Emergency Dispatch</span>
+                </button>
+              </div>
+            )}
+
+            {/* TAB 2: Live Convoy Dispatches */}
+            {activeLeftTab === 'dispatches' && (
+              <div className="space-y-2 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-slate-800 max-h-[420px]">
+                {stateDispatches.length === 0 ? (
+                  <div className="p-4 text-center text-xs text-slate-400 bg-[#060a14] rounded-xl border border-[#141f32] space-y-2">
+                    <p>No active convoys in {selectedStateProfile.stateName}.</p>
+                    <button
+                      onClick={() => setShowNewDispatchModal(true)}
+                      className="px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/30 rounded-lg text-[11px] font-semibold transition-all inline-flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Send size={12} />
+                      <span>Launch Dispatch</span>
+                    </button>
+                  </div>
+                ) : (
+                  stateDispatches.map((disp) => {
+                    const cat = RESOURCE_CATEGORIES[disp.resourceType];
+                    return (
+                      <div
+                        key={disp.id}
+                        className="p-2.5 bg-[#0a1120] border border-[#15233c] hover:border-blue-500/40 rounded-xl space-y-1.5 transition-all text-left"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-[10px] font-bold text-blue-400">{disp.id}</span>
+                            <span
+                              className={`text-[9px] px-1.5 py-0.2 rounded font-bold uppercase ${
+                                disp.priority === 'CRITICAL'
+                                  ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                                  : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                              }`}
+                            >
+                              {disp.priority}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                              <Clock size={10} />
+                              {disp.status === 'Arrived & Active' ? 'Arrived' : `ETA: ${disp.etaMinutes}m`}
+                            </span>
+                            <button
+                              onClick={() => setDispatches((prev) => prev.filter((d) => d.id !== disp.id))}
+                              className="text-slate-500 hover:text-red-400 p-0.5 cursor-pointer"
+                              title="Cancel Mission"
+                            >
+                              <X size={11} />
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-bold text-slate-100 truncate">
+                            {disp.quantity.toLocaleString()} {cat?.shortName || disp.unitLabel}
+                          </span>
+                          <span className="text-slate-400 text-[11px] flex items-center gap-1 shrink-0">
+                            <ArrowRight size={11} className="text-blue-400" />
+                            <span className="font-semibold text-slate-200">{disp.targetDistrict}</span>
+                          </span>
+                        </div>
+
+                        {/* Progress bar */}
+                        <div className="space-y-1">
+                          <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all duration-1000 ${
+                                disp.status === 'Arrived & Active'
+                                  ? 'bg-emerald-500'
+                                  : disp.priority === 'CRITICAL'
+                                  ? 'bg-red-500'
+                                  : 'bg-blue-500'
+                              }`}
+                              style={{ width: `${disp.progress}%` }}
+                            ></div>
+                          </div>
+                          <div className="flex items-center justify-between text-[9px] text-slate-400">
+                            <span>{disp.transportMode}</span>
+                            <span>{disp.status === 'Arrived & Active' ? 'Delivered' : `${disp.progress}% en route`}</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+
+                {stateDispatches.length > 0 && (
+                  <button
+                    onClick={() => setShowNewDispatchModal(true)}
+                    className="w-full py-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Send size={12} />
+                    <span>Add Another Dispatch</span>
+                  </button>
+                )}
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* RIGHT FLOATING PANEL: District Inspection OR Warehouse Inspection */}
+      <AnimatePresence>
+        {selectedWarehouse ? (
+          <motion.div
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 20 }}
+            className="absolute top-18 right-4 z-30 w-80 sm:w-92 bg-[#090d16]/95 border border-emerald-500/40 backdrop-blur-2xl rounded-2xl p-4 shadow-2xl pointer-events-auto space-y-3"
+          >
+            <div className="flex items-start justify-between border-b border-[#141f32] pb-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Building2 size={16} className="text-emerald-400" />
+                  <h3 className="text-sm font-bold text-emerald-300">
+                    {selectedWarehouse.facilityName}
+                  </h3>
+                </div>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {selectedWarehouse.district}, {selectedWarehouse.state}
+                </p>
+              </div>
+              <button
+                onClick={() => setSelectedWarehouse(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg cursor-pointer"
+              >
+                <X size={15} />
+              </button>
+            </div>
+
+            {/* Warehouse Details */}
+            <div className="space-y-2 text-xs">
+              <div className="p-2.5 bg-[#0a1420] border border-[#142d3c] rounded-xl space-y-1.5">
+                <div className="flex items-center justify-between text-slate-300">
+                  <span className="text-slate-400">Facility Type:</span>
+                  <span className="font-bold text-emerald-400">{selectedWarehouse.facilityType}</span>
+                </div>
+                <div className="flex items-center justify-between text-slate-300">
+                  <span className="text-slate-400">GPS Coordinates:</span>
+                  <span className="font-mono text-slate-300">
+                    [{selectedWarehouse.coordinates[0].toFixed(3)}°E, {selectedWarehouse.coordinates[1].toFixed(3)}°N]
+                  </span>
+                </div>
+              </div>
+
+              <button
+                onClick={() => {
+                  setSelectedOriginWarehouseId(selectedWarehouse.id);
+                  setShowNewDispatchModal(true);
+                }}
+                className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-500/25 flex items-center justify-center gap-2 transition-all cursor-pointer"
+              >
+                <Send size={14} />
+                <span>Dispatch From This Warehouse</span>
+              </button>
+            </div>
+          </motion.div>
+        ) : inspectedDistrictProfile ? (
+          <motion.div
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 20 }}
+            className="absolute top-18 right-4 z-30 w-80 sm:w-92 bg-[#090d16]/95 border border-blue-500/40 backdrop-blur-2xl rounded-2xl p-4 shadow-2xl pointer-events-auto space-y-3"
+          >
+            <div className="flex items-start justify-between border-b border-[#141f32] pb-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <MapPin size={16} className="text-blue-400" />
+                  <h3 className="text-sm font-bold text-slate-100">
+                    {inspectedDistrictProfile.districtName}
+                  </h3>
+                </div>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {inspectedDistrictProfile.stateName}
+                </p>
+              </div>
+              <button
+                onClick={() => setSelectedDistrictProps(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg cursor-pointer"
+              >
+                <X size={15} />
+              </button>
+            </div>
+
+            {/* Vulnerability Score Card */}
+            <div className="p-3 bg-[#0a1120] border border-[#15233c] rounded-xl space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-semibold text-slate-300 flex items-center gap-1.5">
+                  <Activity size={13} className="text-blue-400" />
+                  Vulnerability Score
+                </span>
+                <span
+                  className={`text-xs font-black font-mono px-2 py-0.5 rounded-lg border ${
+                    inspectedDistrictProfile.vulnerabilityScore >= 72
+                      ? 'bg-red-500/20 text-red-400 border-red-500/40'
+                      : inspectedDistrictProfile.vulnerabilityScore >= 55
+                      ? 'bg-orange-500/20 text-orange-400 border-orange-500/40'
+                      : 'bg-amber-500/20 text-amber-400 border-amber-500/40'
+                  }`}
+                >
+                  {inspectedDistrictProfile.vulnerabilityScore} / 100 [{inspectedDistrictProfile.riskTier}]
+                </span>
+              </div>
+
+              {/* 3-Pillar Progress Mini-Bars */}
+              <div className="space-y-1.5 pt-1 text-[10px]">
+                <div>
+                  <div className="flex justify-between text-slate-400 mb-0.5">
+                    <span>1. Exposure (Hazard & Density)</span>
+                    <span className="font-mono text-cyan-400 font-bold">{inspectedDistrictProfile.exposureScore}%</span>
+                  </div>
+                  <div className="w-full bg-slate-800 h-1 rounded-full overflow-hidden">
+                    <div className="bg-cyan-500 h-full" style={{ width: `${inspectedDistrictProfile.exposureScore}%` }} />
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex justify-between text-slate-400 mb-0.5">
+                    <span>2. Sensitivity (Poverty & Weak Housing)</span>
+                    <span className="font-mono text-amber-400 font-bold">{inspectedDistrictProfile.sensitivityScore}%</span>
+                  </div>
+                  <div className="w-full bg-slate-800 h-1 rounded-full overflow-hidden">
+                    <div className="bg-amber-500 h-full" style={{ width: `${inspectedDistrictProfile.sensitivityScore}%` }} />
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex justify-between text-slate-400 mb-0.5">
+                    <span>3. Adaptive Deficit (Lack of Hospitals & EWS)</span>
+                    <span className="font-mono text-emerald-400 font-bold">{inspectedDistrictProfile.lackOfCapacityScore}%</span>
+                  </div>
+                  <div className="w-full bg-slate-800 h-1 rounded-full overflow-hidden">
+                    <div className="bg-emerald-500 h-full" style={{ width: `${inspectedDistrictProfile.lackOfCapacityScore}%` }} />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Nearest Relief Warehouse Info */}
+            <div className="p-2.5 bg-[#060a14] rounded-xl border border-[#141f32] space-y-1 text-xs">
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
+                Nearest Relief Staging Base
+              </span>
+              {(() => {
+                const centroid = selectedDistrictProps.centroid || [
+                  stateGeoConfig.center[0],
+                  stateGeoConfig.center[1],
+                ];
+                const { warehouse: nearest, distanceKm } = findNearestWarehouse(centroid, selectedStateId);
+                return (
+                  <div className="flex items-center justify-between pt-1">
+                    <div className="truncate pr-2">
+                      <p className="font-bold text-emerald-300 truncate">{nearest.facilityName}</p>
+                      <p className="text-[10px] text-slate-400">{nearest.district}</p>
+                    </div>
+                    <span className="font-mono font-bold text-cyan-300 shrink-0 text-xs">
+                      {Math.round(distanceKm)} km
+                    </span>
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Direct Dispatch to District CTA */}
+            <button
+              onClick={() => {
+                setNewTargetDistrict(inspectedDistrictProfile.districtName);
+                setShowNewDispatchModal(true);
+              }}
+              className="w-full py-2.5 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-blue-500/25 flex items-center justify-center gap-2 transition-all cursor-pointer"
+            >
+              <Send size={14} />
+              <span>Direct Dispatch to {inspectedDistrictProfile.districtName}</span>
+            </button>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+
+      {/* BOTTOM DOCK: Layer Toggles & Vulnerability Scale Indicator */}
+      <footer className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex flex-wrap items-center justify-center gap-2 bg-[#090d16]/95 border border-[#172338] px-3.5 py-2 rounded-2xl shadow-2xl backdrop-blur-xl pointer-events-auto">
+        <div className="flex items-center gap-1 text-[11px] font-bold text-slate-400 pr-2.5 border-r border-[#15233c]">
+          <Layers size={13} className="text-blue-400" />
+          <span>Layers</span>
+        </div>
+
+        {/* Toggle Supply Routes */}
+        <button
+          onClick={() => setLayerToggles((p) => ({ ...p, convoys: !p.convoys }))}
+          className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+            layerToggles.convoys
+              ? 'bg-blue-600/30 text-blue-300 border border-blue-500/40'
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <Truck size={12} />
+          <span>Convoys</span>
+        </button>
+
+        {/* Toggle 68 Warehouses */}
+        <button
+          onClick={() => setLayerToggles((p) => ({ ...p, warehouses: !p.warehouses }))}
+          className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+            layerToggles.warehouses
+              ? 'bg-emerald-600/30 text-emerald-300 border border-emerald-500/40'
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <Building2 size={12} />
+          <span>68 Warehouses</span>
+        </button>
+
+        {/* Toggle Vulnerability Choropleth Tint */}
+        <button
+          onClick={() => setLayerToggles((p) => ({ ...p, vulnerabilityTint: !p.vulnerabilityTint }))}
+          className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+            layerToggles.vulnerabilityTint
+              ? 'bg-purple-600/30 text-purple-300 border border-purple-500/40'
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <Activity size={12} />
+          <span>Risk Color-Coding</span>
+        </button>
+
+        {/* Compact Vulnerability Gradient Scale */}
+        <div className="hidden sm:flex items-center gap-1.5 pl-2 border-l border-[#15233c] text-[10px] text-slate-400 font-mono">
+          <span>0 (Low)</span>
+          <div className="w-16 h-2 rounded-full bg-gradient-to-r from-[#10b981] via-[#f59e0b] via-[#f97316] to-[#ef4444]" />
+          <span>100 (Crit)</span>
+        </div>
+      </footer>
+
+      {/* MODAL: Authorize New Rapid Dispatch with Integrated Vulnerability Telemetry */}
+      <AnimatePresence>
+        {showNewDispatchModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#070a12]/80 backdrop-blur-md">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-[#090d16] border border-[#1e2f4d] rounded-2xl max-w-xl w-full p-5 sm:p-6 shadow-2xl space-y-4 select-none max-h-[90vh] overflow-y-auto scrollbar-thin scrollbar-thumb-slate-800"
+            >
+              <div className="flex items-start justify-between border-b border-[#15233c] pb-3">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-blue-500/20 border border-blue-500/30 rounded-xl text-blue-400">
+                    <Send size={18} />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-100">Authorize Emergency Dispatch</h3>
+                    <p className="text-xs text-slate-400">
+                      Dispatched from official NDMA / SDMA Warehouse Staging Facilities
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowNewDispatchModal(false)}
+                  className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg cursor-pointer"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <form onSubmit={handleCreateDispatch} className="space-y-4">
+                {/* 1. Origin Warehouse Selector */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center justify-between">
+                    <span>1. Origin Relief Warehouse</span>
+                    <span className="text-[10px] text-emerald-400 font-mono">
+                      {stateWarehouses.length} in {selectedStateProfile.stateName}
+                    </span>
+                  </label>
+                  <select
+                    value={selectedOriginWarehouseId}
+                    onChange={(e) => setSelectedOriginWarehouseId(e.target.value)}
+                    className="w-full p-2.5 bg-[#0d1524] border border-[#1b2b46] rounded-xl text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-semibold"
+                  >
+                    <optgroup label={`${selectedStateProfile.stateName} Facilities`}>
+                      {stateWarehouses.map((wh) => (
+                        <option key={wh.id} value={wh.id}>
+                          {wh.facilityName} ({wh.district} - {wh.facilityType})
+                        </option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="Other National Warehouses">
+                      {WAREHOUSE_FACILITIES.filter((w) => !stateWarehouses.some((sw) => sw.id === w.id)).map((wh) => (
+                        <option key={wh.id} value={wh.id}>
+                          {wh.facilityName} ({wh.state} - {wh.district})
+                        </option>
+                      ))}
+                    </optgroup>
+                  </select>
+                </div>
+
+                {/* 2. Target District Selector */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center justify-between">
+                    <span>2. Target Impact District</span>
+                    <span className="text-[10px] text-blue-400">Sorted by Vulnerability Score</span>
+                  </label>
+                  <select
+                    value={newTargetDistrict}
+                    onChange={(e) => setNewTargetDistrict(e.target.value)}
+                    className="w-full p-2.5 bg-[#0d1524] border border-[#1b2b46] rounded-xl text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-semibold"
+                  >
+                    {availableTargetDistricts.map((dist) => (
+                      <option key={dist.name} value={dist.name}>
+                        {dist.name} (Vuln: {dist.vulnScore} • {dist.riskTier} Risk)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* 3. TARGET DISTRICT VULNERABILITY & DECISION SUPPORT CARD */}
+                {targetDistrictVulnerability && (
+                  <div className="p-3 bg-[#0a1324] border border-blue-500/30 rounded-xl space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Activity size={14} className="text-blue-400" />
+                        <span className="text-xs font-bold text-slate-200">
+                          {targetDistrictVulnerability.districtName} Vulnerability Assessment
+                        </span>
+                      </div>
+                      <span
+                        className={`text-xs font-black font-mono px-2 py-0.5 rounded-lg border ${
+                          targetDistrictVulnerability.vulnerabilityScore >= 72
+                            ? 'bg-red-500/20 text-red-400 border-red-500/40'
+                            : targetDistrictVulnerability.vulnerabilityScore >= 55
+                            ? 'bg-orange-500/20 text-orange-400 border-orange-500/40'
+                            : 'bg-amber-500/20 text-amber-400 border-amber-500/40'
+                        }`}
+                      >
+                        Score: {targetDistrictVulnerability.vulnerabilityScore} / 100 [{targetDistrictVulnerability.riskTier}]
+                      </span>
+                    </div>
+
+                    {/* 3-Pillar Metrics Breakdown */}
+                    <div className="grid grid-cols-3 gap-2 text-[10px]">
+                      <div className="p-2 bg-[#060c18] rounded-lg border border-[#13233c]">
+                        <span className="text-slate-400 block">1. Exposure</span>
+                        <span className="font-mono font-bold text-cyan-400">{targetDistrictVulnerability.exposureScore}%</span>
+                      </div>
+                      <div className="p-2 bg-[#060c18] rounded-lg border border-[#13233c]">
+                        <span className="text-slate-400 block">2. Sensitivity</span>
+                        <span className="font-mono font-bold text-amber-400">{targetDistrictVulnerability.sensitivityScore}%</span>
+                      </div>
+                      <div className="p-2 bg-[#060c18] rounded-lg border border-[#13233c]">
+                        <span className="text-slate-400 block">3. Adaptive Deficit</span>
+                        <span className="font-mono font-bold text-emerald-400">{targetDistrictVulnerability.lackOfCapacityScore}%</span>
+                      </div>
+                    </div>
+
+                    {/* Smart Decision Recommendations */}
+                    {targetDistrictVulnerability.recommendedResources.length > 0 && (
+                      <div className="space-y-1">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                          Suggested Resources Based on Vulnerability Drivers:
+                        </span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {targetDistrictVulnerability.recommendedResources.map((rec, idx) => (
+                            <button
+                              key={idx}
+                              type="button"
+                              onClick={() => {
+                                setNewResourceType(rec.type as any);
+                                if (rec.type === 'waterMotorPumps') setNewQuantity(25);
+                                if (rec.type === 'tarpTentKits') setNewQuantity(5000);
+                                if (rec.type === 'rationPackets') setNewQuantity(10000);
+                                if (rec.type === 'floatingClinics') setNewQuantity(4);
+                              }}
+                              className="text-[10px] px-2 py-1 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 rounded-lg flex items-center gap-1 transition-all cursor-pointer"
+                              title={rec.reason}
+                            >
+                              <Sparkles size={10} className="text-blue-400" />
+                              <span>Select {rec.label}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* 4. Route & ETA Telemetry */}
+                <div className="p-2.5 bg-[#0b1322] border border-[#15233c] rounded-xl flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2 text-slate-300">
+                    <Navigation size={13} className="text-blue-400" />
+                    <span>Road Corridor Distance:</span>
+                    <span className="font-mono font-bold text-white">{estimatedRouteInfo.distanceKm} km</span>
+                  </div>
+                  <div className="flex items-center gap-1 text-emerald-400 font-semibold text-xs">
+                    <Clock size={13} />
+                    <span>Est. ETA ~{estimatedRouteInfo.etaMinutes} mins</span>
+                  </div>
+                </div>
+
+                {/* 5. Resource Category Picker */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+                    Resource Category
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {Object.values(RESOURCE_CATEGORIES).map((cat) => {
+                      const isSelected = newResourceType === cat.id;
+                      return (
+                        <button
+                          key={cat.id}
+                          type="button"
+                          onClick={() => setNewResourceType(cat.id as any)}
+                          className={`p-2 rounded-xl text-left border transition-all text-xs flex items-center gap-2 cursor-pointer ${
+                            isSelected
+                              ? 'bg-blue-600/20 border-blue-500 text-blue-300 font-bold'
+                              : 'bg-[#0d1524] border-[#1b2b46] text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          <div
+                            className="w-2 h-2 rounded-full shrink-0"
+                            style={{ backgroundColor: cat.color }}
+                          ></div>
+                          <span className="truncate">{cat.shortName}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 6. Quantity & Transport Mode */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+                      Quantity to Dispatch
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={100000}
+                      value={newQuantity}
+                      onChange={(e) => setNewQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+                      className="w-full p-2.5 bg-[#0d1524] border border-[#1b2b46] rounded-xl text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono font-bold"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+                      Transport Corridor
+                    </label>
+                    <select
+                      value={newTransportMode}
+                      onChange={(e) => setNewTransportMode(e.target.value as any)}
+                      className="w-full p-2.5 bg-[#0d1524] border border-[#1b2b46] rounded-xl text-xs text-slate-200 focus:outline-none focus:border-blue-500"
+                    >
+                      <option value="Green Road Corridor">Green Road Corridor</option>
+                      <option value="Waterway Fleet / Boat">Waterway Fleet / Boat</option>
+                      <option value="High-Mobility 4x4">High-Mobility 4x4</option>
+                      <option value="IAF Airlift">IAF Airlift (Mi-17 / C-130J)</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* 7. Emergency Priority Selection */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+                    Emergency Priority
+                  </label>
+                  <div className="flex items-center gap-2">
+                    {(['CRITICAL', 'HIGH', 'ROUTINE'] as const).map((p) => (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => setNewPriority(p)}
+                        className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all border cursor-pointer ${
+                          newPriority === p
+                            ? p === 'CRITICAL'
+                              ? 'bg-red-600 text-white border-red-500 shadow-md shadow-red-500/25'
+                              : p === 'HIGH'
+                              ? 'bg-amber-600 text-white border-amber-500 shadow-md shadow-amber-500/25'
+                              : 'bg-blue-600 text-white border-blue-500 shadow-md shadow-blue-500/25'
+                            : 'bg-[#0d1524] border-[#1b2b46] text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        {p}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Submit button */}
+                <div className="flex items-center justify-end gap-3 pt-3 border-t border-[#15233c]">
+                  <button
+                    type="button"
+                    onClick={() => setShowNewDispatchModal(false)}
+                    className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-all cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-6 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-blue-500/30 flex items-center gap-2 transition-all cursor-pointer"
+                  >
+                    <Send size={14} />
+                    <span>Authorize & Track Convoy</span>
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};

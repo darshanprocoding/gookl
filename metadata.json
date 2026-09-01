@@ -1,0 +1,8 @@
+{
+  "name": "Urban Vuln",
+  "description": "Urban Vulnerability Engine and State-wise Disaster Relief Resource Management System",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
