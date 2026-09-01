@@ -5,8 +5,11 @@ async function startServer() {
   const app = express();
   
   if (process.env.NODE_ENV === 'production') {
-    app.use(express.static('dist'));
-    app.get('*', (req, res) => res.sendFile(path.resolve('dist/index.html')));
+    const distPath = path.join(process.cwd(), 'dist');
+    app.use(express.static(distPath));
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
   } else {
     // Dynamic import to avoid loading Vite in production
     const { createServer: createViteServer } = await import('vite');

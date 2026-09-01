@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import DeckGL from '@deck.gl/react';
-import { GeoJsonLayer, ScatterplotLayer, LineLayer } from '@deck.gl/layers';
+import { GeoJsonLayer, ScatterplotLayer, LineLayer, IconLayer, TextLayer } from '@deck.gl/layers';
 import { Map as MapGL } from 'react-map-gl/maplibre';
 import * as maplibregl from 'maplibre-gl';
 import { FlyToInterpolator } from '@deck.gl/core';
@@ -22,8 +22,6 @@ import {
   SlidersHorizontal,
   Layers,
   Compass,
-  Play,
-  Pause,
   RotateCcw,
   Sparkles,
   ShieldAlert,
@@ -45,7 +43,16 @@ import {
   Flame,
   Wind,
   Waves,
+  Plus,
+  Trash2,
+  HelpCircle,
+  FileText,
+  CheckCheck,
+  Check,
+  ExternalLink,
+  ShieldCheck,
 } from 'lucide-react';
+import { getUnitMapIconUrl } from '../utils/mapUnitIcons';
 
 import {
   STATE_RESOURCE_DATA,
@@ -77,6 +84,32 @@ import {
   DistrictVulnerabilityProfile,
 } from '../data/districtProfiles';
 import { useDisasterSimulation } from '../context/DisasterSimulationContext';
+import {
+  UnitIcon3D,
+  DISPATCH_UNITS,
+  DispatchUnitType,
+  getUnitInfo,
+  DISPATCH_PRESET_BUNDLES,
+  PresetDispatchBundle,
+} from './DispatchUnitIcons';
+
+export interface DispatchResourceItem {
+  id: string;
+  resourceType: string;
+  quantity: number;
+  unitLabel: string;
+  unitType?: DispatchUnitType;
+}
+
+export interface DispatchArrivalReport {
+  arrivedAt: string;
+  transitDurationMinutes: number;
+  deliveredSummary: string;
+  beneficiariesServed: number;
+  vulnerabilityReductionPct: number;
+  fieldCommanderNotes: string;
+  localDeploymentStatus: string;
+}
 
 export interface DispatchMission {
   id: string;
@@ -85,156 +118,22 @@ export interface DispatchMission {
   targetCoords: [number, number];
   originDepot: string;
   originCoords: [number, number];
-  resourceType: keyof typeof RESOURCE_CATEGORIES;
-  quantity: number;
-  unitLabel: string;
+  // Multi-resource items in this convoy/airlift
+  items: DispatchResourceItem[];
+  // Primary Lead Unit Type (for 3D avatar & transport performance)
+  unitType: DispatchUnitType;
   transportMode: 'Green Road Corridor' | 'Waterway Fleet / Boat' | 'High-Mobility 4x4' | 'IAF Airlift';
   status: 'In Transit' | 'Staged' | 'Arrived & Active';
   progress: number; // 0 to 100
   etaMinutes: number;
   priority: 'CRITICAL' | 'HIGH' | 'ROUTINE';
   dispatchedAt: string;
+  arrivedAt?: string;
+  arrivalReport?: DispatchArrivalReport;
 }
 
-// Initial Active Dispatches originating strictly from official NDMA/SDMA relief warehouses
-const INITIAL_DISPATCHES: DispatchMission[] = [
-  {
-    id: 'DSP-8821',
-    stateId: 'assam',
-    targetDistrict: 'Majuli',
-    targetCoords: [94.21, 26.96],
-    originDepot: 'Garamur District Godown (Majuli River Island Flood Reserve)',
-    originCoords: [94.1670, 26.9530],
-    resourceType: 'floatingClinics',
-    quantity: 4,
-    unitLabel: 'Motorized Boat Clinics',
-    transportMode: 'Waterway Fleet / Boat',
-    status: 'In Transit',
-    progress: 68,
-    etaMinutes: 25,
-    priority: 'CRITICAL',
-    dispatchedAt: '12 mins ago',
-  },
-  {
-    id: 'DSP-8822',
-    stateId: 'assam',
-    targetDistrict: 'Cachar',
-    targetCoords: [92.7789, 24.8333],
-    originDepot: 'Silchar DDMA Warehouse (Barak Valley Regional Hub)',
-    originCoords: [92.7789, 24.8333],
-    resourceType: 'waterMotorPumps',
-    quantity: 45,
-    unitLabel: 'High-Discharge Dewatering Pumps',
-    transportMode: 'Green Road Corridor',
-    status: 'In Transit',
-    progress: 85,
-    etaMinutes: 15,
-    priority: 'HIGH',
-    dispatchedAt: '25 mins ago',
-  },
-  {
-    id: 'DSP-8830',
-    stateId: 'bihar',
-    targetDistrict: 'Supaul',
-    targetCoords: [86.60, 26.12],
-    originDepot: 'Muzaffarpur DDMA Godown (Tirhut Division Relief Hub)',
-    originCoords: [85.3647, 26.1209],
-    resourceType: 'rationPackets',
-    quantity: 15000,
-    unitLabel: 'Family Food Kits',
-    transportMode: 'Green Road Corridor',
-    status: 'In Transit',
-    progress: 55,
-    etaMinutes: 45,
-    priority: 'CRITICAL',
-    dispatchedAt: '35 mins ago',
-  },
-  {
-    id: 'DSP-8831',
-    stateId: 'bihar',
-    targetDistrict: 'Kishanganj',
-    targetCoords: [87.9403, 26.0754],
-    originDepot: 'Kishanganj District Reserve (Flood Plains Staging Area)',
-    originCoords: [87.9403, 26.0754],
-    resourceType: 'tarpTentKits',
-    quantity: 8500,
-    unitLabel: 'Shelter Kits',
-    transportMode: 'Green Road Corridor',
-    status: 'In Transit',
-    progress: 80,
-    etaMinutes: 15,
-    priority: 'HIGH',
-    dispatchedAt: '50 mins ago',
-  },
-  {
-    id: 'DSP-8840',
-    stateId: 'odisha',
-    targetDistrict: 'Puri',
-    targetCoords: [85.83, 19.81],
-    originDepot: 'Chhatrapur Collectorate Hub (Cyclone Relief Godown, Ganjam)',
-    originCoords: [84.9866, 19.3549],
-    resourceType: 'emergencyGenerators',
-    quantity: 35,
-    unitLabel: 'Mobile DG Sets (125 kVA)',
-    transportMode: 'Green Road Corridor',
-    status: 'In Transit',
-    progress: 75,
-    etaMinutes: 30,
-    priority: 'CRITICAL',
-    dispatchedAt: '40 mins ago',
-  },
-  {
-    id: 'DSP-8850',
-    stateId: 'tamil-nadu',
-    targetDistrict: 'Cuddalore',
-    targetCoords: [79.76, 11.75],
-    originDepot: 'Cuddalore District Depot (Coastal Relief Warehouse)',
-    originCoords: [79.7714, 11.7480],
-    resourceType: 'waterTankers',
-    quantity: 30,
-    unitLabel: 'Potable Bowsers (10,000L)',
-    transportMode: 'Green Road Corridor',
-    status: 'In Transit',
-    progress: 90,
-    etaMinutes: 10,
-    priority: 'HIGH',
-    dispatchedAt: '30 mins ago',
-  },
-  {
-    id: 'DSP-8860',
-    stateId: 'maharashtra',
-    targetDistrict: 'Raigad',
-    targetCoords: [73.18, 18.51],
-    originDepot: 'Alibag Emergency Godown (Monsoon Relief Hub, Raigad)',
-    originCoords: [72.8722, 18.6414],
-    resourceType: 'debrisMachinery',
-    quantity: 14,
-    unitLabel: 'Excavators & Rock Breakers',
-    transportMode: 'High-Mobility 4x4',
-    status: 'In Transit',
-    progress: 72,
-    etaMinutes: 20,
-    priority: 'CRITICAL',
-    dispatchedAt: '45 mins ago',
-  },
-  {
-    id: 'DSP-8870',
-    stateId: 'uttarakhand',
-    targetDistrict: 'Chamoli',
-    targetCoords: [79.35, 30.41],
-    originDepot: 'Gopeshwar Central Store (High-Altitude Emergency Depot, Chamoli)',
-    originCoords: [79.3308, 30.4086],
-    resourceType: 'medicalFirstAidUnits',
-    quantity: 120,
-    unitLabel: 'Trauma & Oxygen Units',
-    transportMode: 'High-Mobility 4x4',
-    status: 'In Transit',
-    progress: 60,
-    etaMinutes: 40,
-    priority: 'CRITICAL',
-    dispatchedAt: '20 mins ago',
-  },
-];
+// Empty by default - dispatches are authorized on-demand by the operator
+const INITIAL_DISPATCHES: DispatchMission[] = [];
 
 const REGIONS = ['All', 'North', 'North-East', 'East', 'West', 'South', 'Central'];
 
@@ -315,13 +214,64 @@ export const DispatchMap: React.FC = () => {
     return getWarehousesForState(selectedStateId);
   }, [selectedStateId]);
 
-  // New Dispatch Form State
+  // Multi-Resource Manifest and Dispatch Form State
   const [selectedOriginWarehouseId, setSelectedOriginWarehouseId] = useState<string>('');
   const [newTargetDistrict, setNewTargetDistrict] = useState<string>('');
-  const [newResourceType, setNewResourceType] = useState<keyof typeof RESOURCE_CATEGORIES>('waterTankers');
-  const [newQuantity, setNewQuantity] = useState<number>(10);
+  const [selectedLeadUnit, setSelectedLeadUnit] = useState<DispatchUnitType>('cargoTruck');
   const [newTransportMode, setNewTransportMode] = useState<DispatchMission['transportMode']>('Green Road Corridor');
   const [newPriority, setNewPriority] = useState<DispatchMission['priority']>('CRITICAL');
+
+  // Multi-item payload manifest for creating new dispatches
+  const [manifestItems, setManifestItems] = useState<DispatchResourceItem[]>([
+    { id: 'm-1', resourceType: 'ambulance', quantity: 4, unitLabel: 'ALS Trauma Ambulances', unitType: 'ambulance' },
+    { id: 'm-2', resourceType: 'rationPackets', quantity: 5000, unitLabel: 'Family Rations', unitType: 'cargoTruck' },
+    { id: 'm-3', resourceType: 'tarpTentKits', quantity: 2000, unitLabel: 'Relief Tents', unitType: 'cargoTruck' },
+  ]);
+
+  // Temporary builder fields for adding individual items to manifest
+  const [itemToAddCategory, setItemToAddCategory] = useState<string>('motorBoat');
+  const [itemToAddQty, setItemToAddQty] = useState<number>(4);
+
+  // Simulation Controls & Arrival Notification State
+  const [arrivedNotificationMission, setArrivedNotificationMission] = useState<DispatchMission | null>(null);
+  const [selectedReachedMission, setSelectedReachedMission] = useState<DispatchMission | null>(null);
+
+  // Helper to construct realistic arrival SitRep telemetry
+  const computeArrivalReport = (mission: DispatchMission): DispatchArrivalReport => {
+    const items = mission.items || [];
+    const deliveredSummary = items.length > 0
+      ? items.map((it) => `${it.quantity.toLocaleString()} ${it.unitLabel}`).join(', ')
+      : 'Emergency relief supplies & operational crew';
+
+    let totalBeneficiaries = 0;
+    items.forEach((it) => {
+      const q = it.quantity || 1;
+      if (it.unitType === 'ambulance') totalBeneficiaries += q * 45;
+      else if (it.unitType === 'motorBoat') totalBeneficiaries += q * 180;
+      else if (it.unitType === 'militaryHelicopter') totalBeneficiaries += q * 320;
+      else if (it.unitType === 'fireEngine') totalBeneficiaries += q * 120;
+      else if (it.unitType === 'policeUnit') totalBeneficiaries += q * 85;
+      else if (it.resourceType === 'rationPackets') totalBeneficiaries += Math.round(q * 4.2);
+      else if (it.resourceType === 'tarpTentKits') totalBeneficiaries += Math.round(q * 5.0);
+      else if (it.resourceType === 'waterMotorPumps') totalBeneficiaries += q * 350;
+      else if (it.resourceType === 'waterTankers') totalBeneficiaries += q * 800;
+      else totalBeneficiaries += q * 15;
+    });
+
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' IST';
+    const vulnReduction = Math.min(45, Math.max(14, Math.round(items.length * 5.5 + (totalBeneficiaries > 5000 ? 14 : 7))));
+
+    return {
+      arrivedAt: timeStr,
+      transitDurationMinutes: Math.max(18, Math.round(mission.etaMinutes * 1.35)),
+      deliveredSummary,
+      beneficiariesServed: Math.max(750, totalBeneficiaries),
+      vulnerabilityReductionPct: vulnReduction,
+      fieldCommanderNotes: `Convoy reached target staging area in ${mission.targetDistrict}. Incident Command Post linked. Life-saving equipment primed and active in designated high-risk flood/disaster sectors.`,
+      localDeploymentStatus: 'Operational on Ground (Active Distribution & Rescue)',
+    };
+  };
 
   // Layer Toggles
   const [layerToggles, setLayerToggles] = useState({
@@ -332,18 +282,28 @@ export const DispatchMap: React.FC = () => {
     vulnerabilityTint: true,
   });
 
-  // Auto Tour playback state
-  const [isAutoTouring, setIsAutoTouring] = useState<boolean>(false);
-
-  // Advance in-transit dispatches realistically and smoothly
+  // Advance in-transit dispatches realistically with real-time live telemetry stream
   useEffect(() => {
     if (dispatches.length === 0) return;
     const interval = setInterval(() => {
-      setDispatches((prev) =>
-        prev.map((d) => {
+      setDispatches((prev) => {
+        let newlyArrived: DispatchMission | null = null;
+        const updated = prev.map((d) => {
           if (d.status === 'In Transit') {
             const nextProgress = Math.min(100, (d.progress || 0) + 1);
             const isArrived = nextProgress >= 100;
+            if (isArrived && !d.arrivalReport) {
+              const arrivedMission: DispatchMission = {
+                ...d,
+                progress: 100,
+                etaMinutes: 0,
+                status: 'Arrived & Active',
+                arrivedAt: 'Just now',
+                arrivalReport: computeArrivalReport(d),
+              };
+              newlyArrived = arrivedMission;
+              return arrivedMission;
+            }
             return {
               ...d,
               progress: nextProgress,
@@ -352,9 +312,14 @@ export const DispatchMap: React.FC = () => {
             };
           }
           return d;
-        })
-      );
-    }, 1500);
+        });
+
+        if (newlyArrived) {
+          setArrivedNotificationMission(newlyArrived);
+        }
+        return updated;
+      });
+    }, 1200);
     return () => clearInterval(interval);
   }, [dispatches.length]);
 
@@ -435,6 +400,46 @@ export const DispatchMap: React.FC = () => {
       });
   }, []);
 
+  // Find matching stateId from raw or canonical state name
+  const findStateIdForDistrict = useCallback((rawState: string) => {
+    if (!rawState) return null;
+    const canonical = canonicalStateName(rawState);
+    const normRaw = rawState.toLowerCase().trim();
+    const normCanonical = canonical.toLowerCase().trim();
+
+    // 1. Direct match in STATE_RESOURCE_DATA
+    const foundInResource = STATE_RESOURCE_DATA.find((s) => {
+      const sName = s.stateName.toLowerCase().trim();
+      const sId = s.id.toLowerCase().trim();
+      return (
+        sId === normRaw ||
+        sId === normCanonical ||
+        sName === normRaw ||
+        sName === normCanonical ||
+        isStateMatch(s.stateName, rawState) ||
+        isStateMatch(s.stateName, canonical)
+      );
+    });
+    if (foundInResource) return foundInResource.id;
+
+    // 2. Direct match in STATE_GEO_CONFIGS
+    const foundInGeo = Object.values(STATE_GEO_CONFIGS).find((cfg) => {
+      const cName = cfg.name.toLowerCase().trim();
+      const cId = cfg.id.toLowerCase().trim();
+      return (
+        cId === normRaw ||
+        cId === normCanonical ||
+        cName === normRaw ||
+        cName === normCanonical ||
+        isStateMatch(cfg.name, rawState) ||
+        isStateMatch(cfg.name, canonical)
+      );
+    });
+    if (foundInGeo) return foundInGeo.id;
+
+    return null;
+  }, []);
+
   // Smoothly Fly To State when `selectedStateId` changes
   const flyToState = useCallback(
     (stateId: string, customPitch?: number) => {
@@ -473,15 +478,6 @@ export const DispatchMap: React.FC = () => {
 
     handleSelectState(STATE_RESOURCE_DATA[nextIndex].id);
   };
-
-  // Auto Tour playback logic
-  useEffect(() => {
-    if (!isAutoTouring) return;
-    const interval = setInterval(() => {
-      handleCycleState('next');
-    }, 7000);
-    return () => clearInterval(interval);
-  }, [isAutoTouring, selectedStateId]);
 
   // Toggle 3D / 2D perspective
   const handleToggle3D = () => {
@@ -782,13 +778,33 @@ export const DispatchMap: React.FC = () => {
     return { distanceKm: Math.round(dist), etaMinutes: eta, targetCoords };
   }, [newTargetDistrict, activeOriginWarehouse, stateDistricts, stateGeoConfig, newTransportMode]);
 
-  // Handle Creating a New Dispatch Mission
+  // Handle Creating a New Multi-Resource Dispatch Mission
   const handleCreateDispatch = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTargetDistrict) return;
 
     const targetCoords = estimatedRouteInfo.targetCoords;
-    const cat = RESOURCE_CATEGORIES[newResourceType];
+    const finalItems: DispatchResourceItem[] =
+      manifestItems.length > 0
+        ? manifestItems
+        : [
+            {
+              id: `item-${Date.now()}`,
+              resourceType: 'ambulance',
+              quantity: 4,
+              unitLabel: 'ALS Trauma Ambulances',
+              unitType: 'ambulance',
+            },
+          ];
+
+    const leadUnit = manifestItems.length > 0 && manifestItems[0].unitType
+      ? manifestItems[0].unitType
+      : newTransportMode === 'IAF Airlift'
+      ? 'militaryHelicopter'
+      : newTransportMode === 'Waterway Fleet / Boat'
+      ? 'motorBoat'
+      : 'cargoTruck';
+
     const newMission: DispatchMission = {
       id: `DSP-${Math.floor(1000 + Math.random() * 9000)}`,
       stateId: selectedStateId,
@@ -796,12 +812,11 @@ export const DispatchMap: React.FC = () => {
       targetCoords,
       originDepot: `${activeOriginWarehouse.facilityName} (${activeOriginWarehouse.district})`,
       originCoords: activeOriginWarehouse.coordinates,
-      resourceType: newResourceType,
-      quantity: newQuantity,
-      unitLabel: cat.unit,
+      items: finalItems,
+      unitType: leadUnit,
       transportMode: newTransportMode,
       status: 'In Transit',
-      progress: 5,
+      progress: 4,
       etaMinutes: estimatedRouteInfo.etaMinutes,
       priority: newPriority,
       dispatchedAt: 'Just now',
@@ -811,6 +826,57 @@ export const DispatchMap: React.FC = () => {
     setShowNewDispatchModal(false);
     setActiveLeftTab('dispatches');
     setIsLeftPanelOpen(true);
+  };
+
+  // Preset Bundle Application Handler
+  const handleApplyPresetBundle = (preset: PresetDispatchBundle) => {
+    setSelectedLeadUnit(preset.leadUnitType);
+    setNewTransportMode(preset.transportMode);
+    setNewPriority(preset.priority);
+    setManifestItems(
+      preset.items.map((it, idx) => ({
+        id: `preset-item-${idx}-${Date.now()}`,
+        resourceType: it.resourceType,
+        quantity: it.quantity,
+        unitLabel: it.unitLabel,
+        unitType: it.unitType || (it.resourceType in DISPATCH_UNITS ? (it.resourceType as DispatchUnitType) : 'cargoTruck'),
+      }))
+    );
+  };
+
+  // Add Item to Custom Payload Manifest
+  const handleAddManifestItem = () => {
+    if (itemToAddQty <= 0) return;
+    const unitInfo = getUnitInfo(itemToAddCategory);
+    const cat = RESOURCE_CATEGORIES[itemToAddCategory as keyof typeof RESOURCE_CATEGORIES];
+    const unitLabel = unitInfo?.shortName || cat?.shortName || itemToAddCategory;
+    const unitType = (itemToAddCategory in DISPATCH_UNITS ? itemToAddCategory : unitInfo?.id || 'cargoTruck') as DispatchUnitType;
+
+    const newItem: DispatchResourceItem = {
+      id: `m-item-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+      resourceType: itemToAddCategory,
+      quantity: itemToAddQty,
+      unitLabel,
+      unitType,
+    };
+
+    setManifestItems((prev) => [...prev, newItem]);
+  };
+
+  // Remove Item from Payload Manifest
+  const handleRemoveManifestItem = (id: string) => {
+    setManifestItems((prev) => prev.filter((it) => it.id !== id));
+  };
+
+  // Update Item Quantity in Payload Manifest
+  const handleUpdateManifestItemQty = (id: string, newQty: number) => {
+    if (newQty <= 0) {
+      handleRemoveManifestItem(id);
+      return;
+    }
+    setManifestItems((prev) =>
+      prev.map((it) => (it.id === id ? { ...it, quantity: newQty } : it))
+    );
   };
 
   // Dynamic Selected district detailed profile (when clicking a polygon on the map)
@@ -991,70 +1057,228 @@ export const DispatchMap: React.FC = () => {
       );
     }
 
-    // 3. Active Supply Lines & Convoys (Connecting Relief Warehouses to Affected Districts)
+      // 3. Active Supply Lines & Convoys (Connecting Relief Warehouses to Affected Districts)
     if (layerToggles.convoys && stateDispatches.length > 0) {
       const lineData = stateDispatches.map((disp) => ({
         id: disp.id,
         sourcePosition: Array.isArray(disp.originCoords) && disp.originCoords.length >= 2 ? disp.originCoords : [78.9629, 20.5937],
         targetPosition: Array.isArray(disp.targetCoords) && disp.targetCoords.length >= 2 ? disp.targetCoords : [78.9629, 20.5937],
-        color:
+        priority: disp.priority,
+        status: disp.status,
+        glowColor:
           disp.priority === 'CRITICAL'
-            ? [239, 68, 68, 220]
+            ? [239, 68, 68, 160]
             : disp.priority === 'HIGH'
-            ? [245, 158, 11, 220]
-            : [59, 130, 246, 220],
+            ? [245, 158, 11, 160]
+            : [14, 165, 233, 160],
+        coreColor:
+          disp.priority === 'CRITICAL'
+            ? [254, 202, 202, 255]
+            : disp.priority === 'HIGH'
+            ? [254, 240, 138, 255]
+            : [186, 230, 253, 255],
       }));
 
+      // 3a. Broad Vibrant Neon Glow Tube Layer
       layerList.push(
         new LineLayer({
-          id: 'dispatch-supply-routes',
+          id: 'dispatch-supply-routes-glow',
           data: lineData,
           getSourcePosition: (d: any) => d.sourcePosition,
           getTargetPosition: (d: any) => d.targetPosition,
-          getColor: (d: any) => d.color,
-          getWidth: 3,
+          getColor: (d: any) => d.glowColor,
+          getWidth: 8,
+          widthUnits: 'pixels',
+          pickable: false,
+        })
+      );
+
+      // 3b. High-Contrast Laser Core Line Layer
+      layerList.push(
+        new LineLayer({
+          id: 'dispatch-supply-routes-core',
+          data: lineData,
+          getSourcePosition: (d: any) => d.sourcePosition,
+          getTargetPosition: (d: any) => d.targetPosition,
+          getColor: (d: any) => d.coreColor,
+          getWidth: 3.5,
           widthUnits: 'pixels',
           pickable: true,
         })
       );
 
-      // Moving Convoy Pulse Beacons along route
+      // 3c. Origin & Target Dropzone Tactical Anchor Rings
+      const originPoints = stateDispatches.map((d) => ({
+        position: Array.isArray(d.originCoords) && d.originCoords.length >= 2 ? d.originCoords : [78.9629, 20.5937],
+        label: d.originFacility,
+      }));
+      const targetPoints = stateDispatches.map((d) => ({
+        position: Array.isArray(d.targetCoords) && d.targetCoords.length >= 2 ? d.targetCoords : [78.9629, 20.5937],
+        label: d.targetDistrict,
+        priority: d.priority,
+      }));
+
+      layerList.push(
+        new ScatterplotLayer({
+          id: 'dispatch-origin-depot-anchors',
+          data: originPoints,
+          getPosition: (d: any) => d.position,
+          getRadius: 7000,
+          radiusMinPixels: 6,
+          radiusMaxPixels: 14,
+          filled: true,
+          stroked: true,
+          getFillColor: [16, 185, 129, 200],
+          getLineColor: [255, 255, 255, 255],
+          lineWidthMinPixels: 2,
+        })
+      );
+
+      layerList.push(
+        new ScatterplotLayer({
+          id: 'dispatch-target-dropzone-anchors',
+          data: targetPoints,
+          getPosition: (d: any) => d.position,
+          getRadius: 10000,
+          radiusMinPixels: 8,
+          radiusMaxPixels: 20,
+          filled: true,
+          stroked: true,
+          getFillColor: (d: any) =>
+            d.priority === 'CRITICAL'
+              ? [239, 68, 68, 120]
+              : [245, 158, 11, 120],
+          getLineColor: (d: any) =>
+            d.priority === 'CRITICAL'
+              ? [254, 202, 202, 240]
+              : [254, 240, 138, 240],
+          lineWidthMinPixels: 2,
+        })
+      );
+
+      // Moving Convoy Units along route with high-contrast tactical HUD vehicle badges
       const movingBeacons = stateDispatches.map((disp) => {
         const progressRatio = Math.max(0.02, Math.min(0.98, (disp.progress || 10) / 100));
         const [x1, y1] = Array.isArray(disp.originCoords) && disp.originCoords.length >= 2 ? disp.originCoords : [78.9629, 20.5937];
         const [x2, y2] = Array.isArray(disp.targetCoords) && disp.targetCoords.length >= 2 ? disp.targetCoords : [78.9629, 20.5937];
         const curLng = x1 + (x2 - x1) * progressRatio;
         const curLat = y1 + (y2 - y1) * progressRatio;
+        const unitType = disp.unitType || (disp.items?.[0]?.unitType) || 'cargoTruck';
+        const iconUrl = getUnitMapIconUrl(unitType);
 
         return {
           id: `${disp.id}-beacon`,
+          dispatchId: disp.id,
           position: [curLng, curLat, 500],
           resourceType: disp.resourceType,
+          unitType,
+          iconUrl,
           label: disp.id,
           priority: disp.priority,
           progress: disp.progress,
+          targetDistrict: disp.targetDistrict,
+          transportMode: disp.transportMode,
+          status: disp.status,
         };
       });
 
+      // 1. Ambient pulsing beacon ground halo
       layerList.push(
         new ScatterplotLayer({
-          id: 'dispatch-moving-convoys',
+          id: 'dispatch-moving-convoys-halo',
           data: movingBeacons,
           getPosition: (d: any) => d.position,
-          getRadius: 5500,
-          radiusMinPixels: 7,
-          radiusMaxPixels: 15,
+          getRadius: 7500,
+          radiusMinPixels: 12,
+          radiusMaxPixels: 24,
           filled: true,
           stroked: true,
           getFillColor: (d: any) =>
             d.priority === 'CRITICAL'
-              ? [239, 68, 68, 240]
+              ? [239, 68, 68, 60]
               : d.priority === 'HIGH'
-              ? [245, 158, 11, 240]
-              : [59, 130, 246, 240],
-          getLineColor: [255, 255, 255, 255],
+              ? [245, 158, 11, 60]
+              : [59, 130, 246, 60],
+          getLineColor: (d: any) =>
+            d.priority === 'CRITICAL'
+              ? [239, 68, 68, 220]
+              : d.priority === 'HIGH'
+              ? [245, 158, 11, 220]
+              : [59, 130, 246, 220],
           lineWidthMinPixels: 2,
+          pickable: false,
+        })
+      );
+
+      // 2. High-Tech Tactical C2 HUD Pin Badges (AMB-07, FE-02, UAV-02, RT-01, PV-08, HELI-01)
+      layerList.push(
+        new IconLayer({
+          id: 'dispatch-moving-convoys-icons',
+          data: movingBeacons,
+          getPosition: (d: any) => d.position,
+          getIcon: (d: any) => ({
+            url: d.iconUrl,
+            width: 100,
+            height: 115,
+            anchorX: 50,
+            anchorY: 106,
+            mask: false,
+          }),
+          getSize: 46,
+          sizeScale: 1,
+          sizeUnits: 'pixels',
+          sizeMinPixels: 34,
+          sizeMaxPixels: 56,
           pickable: true,
+          onClick: (info: any) => {
+            if (info.object) {
+              const disp = stateDispatches.find((d) => d.id === info.object.dispatchId);
+              if (disp) {
+                if (disp.status === 'Arrived & Active') {
+                  setSelectedReachedMission(disp);
+                } else {
+                  setActiveLeftTab('dispatches');
+                  setIsLeftPanelOpen(true);
+                }
+              }
+            }
+          },
+        })
+      );
+
+      // 3. Clear, High-Contrast Mission Progress Tag below the pin tip
+      layerList.push(
+        new TextLayer({
+          id: 'dispatch-moving-convoys-labels',
+          data: movingBeacons,
+          getPosition: (d: any) => d.position,
+          getText: (d: any) => `${d.progress}% En Route`,
+          getSize: 9.5,
+          sizeUnits: 'pixels',
+          getColor: [255, 255, 255, 255],
+          getTextAnchor: 'middle',
+          getAlignmentBaseline: 'top',
+          getPixelOffset: [0, 8],
+          background: true,
+          getBackgroundColor: () => [6, 10, 18, 235],
+          backgroundPadding: [5, 2, 5, 2],
+          borderRadius: 4,
+          fontFamily: 'monospace, ui-monospace, sans-serif',
+          fontWeight: 'bold',
+          pickable: true,
+          onClick: (info: any) => {
+            if (info.object) {
+              const disp = stateDispatches.find((d) => d.id === info.object.dispatchId);
+              if (disp) {
+                if (disp.status === 'Arrived & Active') {
+                  setSelectedReachedMission(disp);
+                } else {
+                  setActiveLeftTab('dispatches');
+                  setIsLeftPanelOpen(true);
+                }
+              }
+            }
+          },
         })
       );
     }
@@ -1112,11 +1336,20 @@ export const DispatchMap: React.FC = () => {
     disasterType,
   ]);
 
-  // Handle map clicks for district selection
+  // Handle map clicks for district selection - automatically teleports map to the entire state containing the district
   const handleMapClick = (info: any) => {
     if (info.object && info.layer?.id === 'dispatch-district-polygons') {
+      const props = info.object.properties;
       setSelectedWarehouse(null);
-      setSelectedDistrictProps(info.object.properties);
+      setSelectedDistrictProps(props);
+
+      const rawState = props?.state || props?.NAME_1 || '';
+      const targetStateId = findStateIdForDistrict(rawState);
+
+      if (targetStateId) {
+        setSelectedStateId(targetStateId);
+        flyToState(targetStateId);
+      }
     }
   };
 
@@ -1445,12 +1678,26 @@ export const DispatchMap: React.FC = () => {
           </div>
         </div>
 
-        {/* Right: Tactical Actions & Panel Toggles */}
+        {/* Right: Live Telemetry Indicator & Panel Toggles */}
         <div className="flex items-center gap-2 pointer-events-auto">
+          {/* Live Telemetry Status Pill */}
+          <div className="flex items-center gap-2 px-3.5 py-2 bg-[#090d16]/95 border border-emerald-500/40 rounded-xl shadow-xl backdrop-blur-xl text-xs">
+            <div className="relative flex items-center justify-center">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping absolute opacity-75" />
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+            </div>
+            <span className="font-mono font-bold tracking-wider text-emerald-400 uppercase text-[11px]">
+              LIVE
+            </span>
+            <span className="text-slate-400 text-[10px] hidden md:inline font-mono">
+              • Real-Time Stream
+            </span>
+          </div>
+
           {/* Toggle Left SDRF Drawer Button */}
           <button
             onClick={() => setIsLeftPanelOpen(!isLeftPanelOpen)}
-            className={`h-10 px-3 flex items-center gap-1.5 rounded-xl text-xs font-bold border backdrop-blur-xl transition-all shadow-xl cursor-pointer ${
+            className={`h-10 px-3.5 flex items-center gap-2 rounded-xl text-xs font-bold border backdrop-blur-xl transition-all shadow-xl cursor-pointer ${
               isLeftPanelOpen
                 ? 'bg-blue-600/30 border-blue-500/60 text-blue-300'
                 : 'bg-[#090d16]/95 border-[#1b2a44] text-slate-300 hover:text-white hover:bg-[#121c2e]'
@@ -1459,20 +1706,11 @@ export const DispatchMap: React.FC = () => {
           >
             <Layers size={14} />
             <span className="hidden sm:inline">Force & Logistics</span>
-          </button>
-
-          {/* Auto Tour Toggle */}
-          <button
-            onClick={() => setIsAutoTouring(!isAutoTouring)}
-            className={`h-10 px-3 flex items-center gap-1.5 rounded-xl text-xs font-bold border backdrop-blur-xl transition-all shadow-xl cursor-pointer ${
-              isAutoTouring
-                ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-amber-500/20 animate-pulse'
-                : 'bg-[#090d16]/95 border-[#1b2a44] text-slate-300 hover:text-white hover:bg-[#121c2e]'
-            }`}
-            title="Auto Cycle across States"
-          >
-            {isAutoTouring ? <Pause size={13} /> : <Play size={13} />}
-            <span className="hidden sm:inline">{isAutoTouring ? 'Touring' : 'Auto Tour'}</span>
+            {stateDispatches.length > 0 && (
+              <span className="w-5 h-5 rounded-full bg-blue-500 text-white text-[10px] font-mono font-bold flex items-center justify-center">
+                {stateDispatches.length}
+              </span>
+            )}
           </button>
 
           {/* 2D / 3D Tilt Toggle */}
@@ -1500,6 +1738,68 @@ export const DispatchMap: React.FC = () => {
         </div>
       </header>
 
+      {/* TOP FLOATING NOTIFICATION: Mission Arrival Alert Banner */}
+      <AnimatePresence>
+        {arrivedNotificationMission && (
+          <motion.div
+            initial={{ opacity: 0, y: -20, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -20, scale: 0.96 }}
+            className="absolute top-18 left-1/2 -translate-x-1/2 z-40 w-full max-w-xl px-4 pointer-events-auto"
+          >
+            <div className="p-3.5 bg-[#081220]/95 border-2 border-emerald-500/80 rounded-2xl shadow-2xl shadow-emerald-500/20 backdrop-blur-2xl flex items-center justify-between gap-3 text-left">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-12 h-12 rounded-xl bg-emerald-500/20 border border-emerald-500/40 p-1 flex items-center justify-center shrink-0">
+                  <UnitIcon3D
+                    type={arrivedNotificationMission.unitType || (arrivedNotificationMission.items?.[0]?.unitType) || 'militaryHelicopter'}
+                    size={38}
+                    animated={true}
+                  />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-mono font-black px-1.5 py-0.2 rounded bg-emerald-500/30 text-emerald-300 border border-emerald-500/50 uppercase">
+                      Mission Arrived
+                    </span>
+                    <span className="text-xs font-mono font-bold text-slate-200">
+                      {arrivedNotificationMission.id}
+                    </span>
+                  </div>
+                  <h4 className="text-xs font-bold text-white truncate mt-0.5">
+                    Reached {arrivedNotificationMission.targetDistrict}
+                  </h4>
+                  <p className="text-[10px] text-slate-300 truncate">
+                    {arrivedNotificationMission.items && arrivedNotificationMission.items.length > 0
+                      ? arrivedNotificationMission.items.map((it) => `${it.quantity} ${it.unitLabel}`).join(', ')
+                      : 'Relief and Rescue Task Force deployed on ground'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => {
+                    setSelectedReachedMission(arrivedNotificationMission);
+                    setArrivedNotificationMission(null);
+                  }}
+                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-600/30 flex items-center gap-1.5 transition-all cursor-pointer"
+                >
+                  <FileText size={12} />
+                  <span>View Reached Info</span>
+                </button>
+                <button
+                  onClick={() => setArrivedNotificationMission(null)}
+                  className="p-1 text-slate-400 hover:text-white rounded-lg cursor-pointer"
+                  title="Dismiss Notification"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* DeckGL & Basemap Container */}
       <DeckGL
         viewState={viewState}
@@ -1524,7 +1824,7 @@ export const DispatchMap: React.FC = () => {
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -20 }}
-            className="absolute top-18 left-4 z-30 w-80 sm:w-88 max-h-[calc(100vh-140px)] flex flex-col bg-[#090d16]/92 border border-[#172338] backdrop-blur-2xl rounded-2xl shadow-2xl p-4 pointer-events-auto space-y-3"
+            className="absolute top-20 left-4 z-40 w-80 sm:w-92 max-h-[calc(100vh-100px)] flex flex-col bg-[#090d16]/95 border border-[#172338] backdrop-blur-2xl rounded-2xl shadow-2xl p-4 pointer-events-auto space-y-3"
           >
             {/* Header & Tabs */}
             <div className="flex items-center justify-between border-b border-[#141f32] pb-2.5">
@@ -1689,55 +1989,94 @@ export const DispatchMap: React.FC = () => {
                   </div>
                 ) : (
                   stateDispatches.map((disp) => {
-                    const cat = RESOURCE_CATEGORIES[disp.resourceType];
+                    const leadUnitType: DispatchUnitType =
+                      disp.unitType ||
+                      (disp.items && disp.items[0]?.unitType) ||
+                      (disp.items && disp.items[0]?.resourceType in DISPATCH_UNITS
+                        ? (disp.items[0].resourceType as DispatchUnitType)
+                        : 'cargoTruck');
+                    const unitMeta = getUnitInfo(leadUnitType);
+                    const items = disp.items && disp.items.length > 0 ? disp.items : [];
+
                     return (
                       <div
                         key={disp.id}
-                        className="p-2.5 bg-[#0a1120] border border-[#15233c] hover:border-blue-500/40 rounded-xl space-y-1.5 transition-all text-left"
+                        className={`p-3 bg-[#0a1120] border rounded-xl space-y-2 transition-all text-left shadow-lg ${
+                          disp.status === 'Arrived & Active'
+                            ? 'border-emerald-500/50 bg-[#08151f]'
+                            : 'border-[#15233c] hover:border-blue-500/40'
+                        }`}
                       >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono text-[10px] font-bold text-blue-400">{disp.id}</span>
-                            <span
-                              className={`text-[9px] px-1.5 py-0.2 rounded font-bold uppercase ${
-                                disp.priority === 'CRITICAL'
-                                  ? 'bg-red-500/20 text-red-400 border border-red-500/30'
-                                  : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                              }`}
-                            >
-                              {disp.priority}
-                            </span>
+                        {/* Header: 3D Unit Icon, ID, Priority and Actions */}
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="w-10 h-10 rounded-xl bg-[#0e1a2e] border border-[#1d3150] p-1 flex items-center justify-center shrink-0">
+                              <UnitIcon3D type={leadUnitType} size={30} animated={disp.status === 'In Transit'} />
+                            </div>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-mono text-[11px] font-bold text-blue-400">{disp.id}</span>
+                                <span
+                                  className={`text-[8px] px-1.5 py-0.2 rounded font-black uppercase ${
+                                    disp.priority === 'CRITICAL'
+                                      ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                                      : disp.priority === 'HIGH'
+                                      ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                                      : 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+                                  }`}
+                                >
+                                  {disp.priority}
+                                </span>
+                              </div>
+                              <p className="text-[10px] text-slate-400 font-semibold truncate">
+                                {unitMeta.serviceBranch} • {disp.transportMode}
+                              </p>
+                            </div>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-[10px] text-slate-400 flex items-center gap-1">
-                              <Clock size={10} />
-                              {disp.status === 'Arrived & Active' ? 'Arrived' : `ETA: ${disp.etaMinutes}m`}
-                            </span>
+
+                          <div className="flex items-center gap-1 shrink-0">
                             <button
                               onClick={() => setDispatches((prev) => prev.filter((d) => d.id !== disp.id))}
-                              className="text-slate-500 hover:text-red-400 p-0.5 cursor-pointer"
-                              title="Cancel Mission"
+                              className="text-slate-500 hover:text-red-400 p-1 cursor-pointer"
+                              title="Remove Convoy Record"
                             >
-                              <X size={11} />
+                              <X size={12} />
                             </button>
                           </div>
                         </div>
 
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="font-bold text-slate-100 truncate">
-                            {disp.quantity.toLocaleString()} {cat?.shortName || disp.unitLabel}
+                        {/* Origin -> Destination corridor */}
+                        <div className="flex items-center justify-between text-xs pt-0.5">
+                          <span className="text-slate-400 text-[10px] truncate max-w-[110px]" title={disp.originDepot}>
+                            {disp.originDepot.split('(')[0]}
                           </span>
-                          <span className="text-slate-400 text-[11px] flex items-center gap-1 shrink-0">
-                            <ArrowRight size={11} className="text-blue-400" />
-                            <span className="font-semibold text-slate-200">{disp.targetDistrict}</span>
-                          </span>
+                          <ArrowRight size={11} className="text-blue-400 shrink-0 mx-1" />
+                          <span className="font-bold text-slate-100 text-[11px] truncate">{disp.targetDistrict}</span>
                         </div>
 
-                        {/* Progress bar */}
-                        <div className="space-y-1">
+                        {/* Multi-Resource Items Manifest Breakdown */}
+                        <div className="space-y-1 bg-[#060a14] p-2 rounded-lg border border-[#141f32]">
+                          <span className="text-[9px] font-mono text-slate-400 uppercase tracking-wider block font-bold">
+                            Payload Manifest ({items.length} resource types):
+                          </span>
+                          <div className="flex flex-wrap gap-1">
+                            {items.map((it, idx) => (
+                              <span
+                                key={idx}
+                                className="text-[9px] px-1.5 py-0.5 rounded bg-[#101b2e] border border-[#1a2d4b] text-slate-200 font-mono flex items-center gap-1"
+                              >
+                                <span className="text-cyan-400 font-bold">{it.quantity.toLocaleString()}</span>
+                                <span className="truncate">{it.unitLabel}</span>
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Progress Bar & Real-Time Status / Reached Actions */}
+                        <div className="space-y-1.5 pt-0.5">
                           <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
                             <div
-                              className={`h-full rounded-full transition-all duration-1000 ${
+                              className={`h-full rounded-full transition-all duration-700 ${
                                 disp.status === 'Arrived & Active'
                                   ? 'bg-emerald-500'
                                   : disp.priority === 'CRITICAL'
@@ -1747,9 +2086,31 @@ export const DispatchMap: React.FC = () => {
                               style={{ width: `${disp.progress}%` }}
                             ></div>
                           </div>
-                          <div className="flex items-center justify-between text-[9px] text-slate-400">
-                            <span>{disp.transportMode}</span>
-                            <span>{disp.status === 'Arrived & Active' ? 'Delivered' : `${disp.progress}% en route`}</span>
+
+                          <div className="flex items-center justify-between text-[10px]">
+                            {disp.status === 'Arrived & Active' ? (
+                              <span className="text-emerald-400 font-bold flex items-center gap-1">
+                                <CheckCheck size={12} />
+                                <span>Reached & Active on Ground</span>
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 flex items-center gap-1">
+                                <Clock size={10} className="text-amber-400" />
+                                <span>{disp.progress}% en route • ETA: {disp.etaMinutes}m</span>
+                              </span>
+                            )}
+
+                            {disp.status === 'Arrived & Active' ? (
+                              <button
+                                onClick={() => setSelectedReachedMission(disp)}
+                                className="px-2.5 py-1 bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-300 border border-emerald-500/40 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-all cursor-pointer shadow-sm"
+                              >
+                                <FileText size={10} />
+                                <span>Reached Info</span>
+                              </button>
+                            ) : (
+                              <span className="font-mono text-[9px] text-slate-400 font-bold">{disp.transportMode}</span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -2134,17 +2495,37 @@ export const DispatchMap: React.FC = () => {
                               key={idx}
                               type="button"
                               onClick={() => {
-                                setNewResourceType(rec.type as any);
-                                if (rec.type === 'waterMotorPumps') setNewQuantity(25);
-                                if (rec.type === 'tarpTentKits') setNewQuantity(5000);
-                                if (rec.type === 'rationPackets') setNewQuantity(10000);
-                                if (rec.type === 'floatingClinics') setNewQuantity(4);
+                                const qty =
+                                  rec.type === 'waterMotorPumps'
+                                    ? 25
+                                    : rec.type === 'tarpTentKits'
+                                    ? 5000
+                                    : rec.type === 'rationPackets'
+                                    ? 10000
+                                    : rec.type === 'floatingClinics'
+                                    ? 4
+                                    : 10;
+                                setManifestItems((prev) => [
+                                  ...prev,
+                                  {
+                                    id: `manifest-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+                                    resourceType: rec.type,
+                                    quantity: qty,
+                                    unitLabel: rec.label,
+                                    unitType:
+                                      rec.type in DISPATCH_UNITS
+                                        ? (rec.type as DispatchUnitType)
+                                        : rec.type === 'floatingClinics'
+                                        ? 'motorBoat'
+                                        : 'cargoTruck',
+                                  },
+                                ]);
                               }}
                               className="text-[10px] px-2 py-1 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 rounded-lg flex items-center gap-1 transition-all cursor-pointer"
                               title={rec.reason}
                             >
                               <Sparkles size={10} className="text-blue-400" />
-                              <span>Select {rec.label}</span>
+                              <span>+ Add {rec.label}</span>
                             </button>
                           ))}
                         </div>
@@ -2166,52 +2547,163 @@ export const DispatchMap: React.FC = () => {
                   </div>
                 </div>
 
-                {/* 5. Resource Category Picker */}
+                {/* 4. PRESET TACTICAL BUNDLES */}
                 <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-                    Resource Category
-                  </label>
-                  <div className="grid grid-cols-2 gap-2">
-                    {Object.values(RESOURCE_CATEGORIES).map((cat) => {
-                      const isSelected = newResourceType === cat.id;
-                      return (
-                        <button
-                          key={cat.id}
-                          type="button"
-                          onClick={() => setNewResourceType(cat.id as any)}
-                          className={`p-2 rounded-xl text-left border transition-all text-xs flex items-center gap-2 cursor-pointer ${
-                            isSelected
-                              ? 'bg-blue-600/20 border-blue-500 text-blue-300 font-bold'
-                              : 'bg-[#0d1524] border-[#1b2b46] text-slate-400 hover:text-slate-200'
-                          }`}
-                        >
-                          <div
-                            className="w-2 h-2 rounded-full shrink-0"
-                            style={{ backgroundColor: cat.color }}
-                          ></div>
-                          <span className="truncate">{cat.shortName}</span>
-                        </button>
-                      );
-                    })}
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                      <Sparkles size={13} className="text-cyan-400" />
+                      <span>Quick Tactical Bundles</span>
+                    </label>
+                    <span className="text-[10px] text-slate-400">1-Click Auto-Configure</span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {DISPATCH_PRESET_BUNDLES.map((preset) => (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        onClick={() => handleApplyPresetBundle(preset)}
+                        className="p-2 bg-[#0c1424] hover:bg-[#132038] border border-[#182844] hover:border-cyan-500/50 rounded-xl text-left transition-all cursor-pointer space-y-1 group"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-bold text-slate-200 group-hover:text-cyan-300 truncate">
+                            {preset.name}
+                          </span>
+                        </div>
+                        <p className="text-[9px] text-slate-400 line-clamp-1">{preset.description}</p>
+                        <div className="flex items-center gap-1 text-[9px] text-cyan-400 font-mono font-semibold">
+                          <span>{preset.items.length} Resource Types</span>
+                        </div>
+                      </button>
+                    ))}
                   </div>
                 </div>
 
-                {/* 6. Quantity & Transport Mode */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-                      Quantity to Dispatch
+                {/* 5. MULTI-RESOURCE PAYLOAD MANIFEST BUILDER */}
+                <div className="space-y-2 bg-[#070e1c] p-3.5 rounded-xl border border-[#162744]">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                      <Package size={13} className="text-emerald-400" />
+                      <span>Multi-Resource Payload Manifest ({manifestItems.length} Items)</span>
                     </label>
-                    <input
-                      type="number"
-                      min={1}
-                      max={100000}
-                      value={newQuantity}
-                      onChange={(e) => setNewQuantity(Math.max(1, parseInt(e.target.value) || 1))}
-                      className="w-full p-2.5 bg-[#0d1524] border border-[#1b2b46] rounded-xl text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono font-bold"
-                    />
+                    <span className="text-[10px] text-slate-400">Combine multiple supplies in 1 convoy</span>
                   </div>
 
+                  {/* Add New Item Row */}
+                  <div className="p-2 bg-[#0a1426] border border-[#192b4a] rounded-xl space-y-2">
+                    <span className="text-[10px] font-bold text-slate-300 block">Add Resource to Manifest:</span>
+                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
+                      <div className="sm:col-span-7">
+                        <select
+                          value={itemToAddCategory}
+                          onChange={(e) => setItemToAddCategory(e.target.value)}
+                          className="w-full p-2 bg-[#060c16] border border-[#1b2f50] rounded-lg text-xs text-slate-200 focus:outline-none focus:border-cyan-500 font-semibold"
+                        >
+                          <optgroup label="Emergency Tactical Vehicles & Units">
+                            <option value="ambulance">ALS Advanced Trauma Ambulances</option>
+                            <option value="fireEngine">High-Reach Fire & Rescue Engines</option>
+                            <option value="policeUnit">Police & SDRF Quick Response Units</option>
+                            <option value="militaryHelicopter">IAF / Military Mi-17 Heavy Helicopters</option>
+                            <option value="motorBoat">Inflatable Motor Boats (Gemini Craft)</option>
+                            <option value="reconDrone">Disaster Recon Drones</option>
+                          </optgroup>
+                          <optgroup label="Disaster Relief Supplies & Hardware">
+                            <option value="waterTankers">Potable Water Bowsers (10,000 L)</option>
+                            <option value="debrisMachinery">Heavy Debris Excavators & Earthmovers</option>
+                            <option value="emergencyGenerators">Emergency DG Generator Sets</option>
+                            <option value="rationPackets">Family Food Ration Packets</option>
+                            <option value="tarpTentKits">Weatherproof Disaster Tents & Tarps</option>
+                            <option value="waterMotorPumps">High-Volume Dewatering Trash Pumps</option>
+                            <option value="medicalFirstAidUnits">Trauma & Heat-Stroke First Aid Kits</option>
+                            <option value="floatingClinics">Inflatable Boat Mobile Clinics</option>
+                          </optgroup>
+                        </select>
+                      </div>
+
+                      <div className="sm:col-span-3">
+                        <input
+                          type="number"
+                          min={1}
+                          max={50000}
+                          value={itemToAddQty}
+                          onChange={(e) => setItemToAddQty(Math.max(1, parseInt(e.target.value) || 1))}
+                          className="w-full p-2 bg-[#060c16] border border-[#1b2f50] rounded-lg text-xs text-slate-200 font-mono font-bold focus:outline-none focus:border-cyan-500"
+                          placeholder="Qty"
+                        />
+                      </div>
+
+                      <div className="sm:col-span-2">
+                        <button
+                          type="button"
+                          onClick={handleAddManifestItem}
+                          className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer"
+                        >
+                          <Plus size={13} />
+                          <span>Add</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Visual Manifest Items Table */}
+                  <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-slate-800">
+                    {manifestItems.length === 0 ? (
+                      <div className="p-3 text-center text-xs text-slate-400 bg-[#060c16] rounded-lg border border-[#16233a]">
+                        Manifest is empty. Add resources above or select a Quick Preset.
+                      </div>
+                    ) : (
+                      manifestItems.map((item) => (
+                        <div
+                          key={item.id}
+                          className="p-2 bg-[#0a1322] border border-[#16253c] rounded-lg flex items-center justify-between gap-2 text-xs"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div className="w-6 h-6 rounded bg-[#101e34] flex items-center justify-center shrink-0">
+                              <UnitIcon3D
+                                type={item.unitType || (item.resourceType in DISPATCH_UNITS ? item.resourceType as DispatchUnitType : 'cargoTruck')}
+                                size={18}
+                              />
+                            </div>
+                            <span className="font-semibold text-slate-200 truncate">{item.unitLabel}</span>
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0">
+                            <div className="flex items-center bg-[#060c18] border border-[#182a46] rounded-md">
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateManifestItemQty(item.id, item.quantity - (item.quantity > 50 ? 50 : 1))}
+                                className="px-1.5 py-0.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-l cursor-pointer font-bold"
+                              >
+                                -
+                              </button>
+                              <span className="px-2 font-mono font-bold text-cyan-300 text-xs">
+                                {item.quantity.toLocaleString()}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateManifestItemQty(item.id, item.quantity + (item.quantity >= 50 ? 50 : 1))}
+                                className="px-1.5 py-0.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-r cursor-pointer font-bold"
+                              >
+                                +
+                              </button>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveManifestItem(item.id)}
+                              className="p-1 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded cursor-pointer"
+                              title="Remove item"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                {/* 7. Transport Corridor & Emergency Priority */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
                       Transport Corridor
@@ -2219,61 +2711,253 @@ export const DispatchMap: React.FC = () => {
                     <select
                       value={newTransportMode}
                       onChange={(e) => setNewTransportMode(e.target.value as any)}
-                      className="w-full p-2.5 bg-[#0d1524] border border-[#1b2b46] rounded-xl text-xs text-slate-200 focus:outline-none focus:border-blue-500"
+                      className="w-full p-2.5 bg-[#0d1524] border border-[#1b2b46] rounded-xl text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-semibold"
                     >
-                      <option value="Green Road Corridor">Green Road Corridor</option>
-                      <option value="Waterway Fleet / Boat">Waterway Fleet / Boat</option>
-                      <option value="High-Mobility 4x4">High-Mobility 4x4</option>
-                      <option value="IAF Airlift">IAF Airlift (Mi-17 / C-130J)</option>
+                      <option value="Green Road Corridor">Green Road Corridor (NDMA Express Lane)</option>
+                      <option value="Waterway Fleet / Boat">Waterway Fleet / Gemini Motor Boats</option>
+                      <option value="High-Mobility 4x4">High-Mobility 4x4 Heavy All-Terrain</option>
+                      <option value="IAF Airlift">IAF Airlift (Mi-17 / C-130J Hercules)</option>
                     </select>
                   </div>
-                </div>
 
-                {/* 7. Emergency Priority Selection */}
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-                    Emergency Priority
-                  </label>
-                  <div className="flex items-center gap-2">
-                    {(['CRITICAL', 'HIGH', 'ROUTINE'] as const).map((p) => (
-                      <button
-                        key={p}
-                        type="button"
-                        onClick={() => setNewPriority(p)}
-                        className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all border cursor-pointer ${
-                          newPriority === p
-                            ? p === 'CRITICAL'
-                              ? 'bg-red-600 text-white border-red-500 shadow-md shadow-red-500/25'
-                              : p === 'HIGH'
-                              ? 'bg-amber-600 text-white border-amber-500 shadow-md shadow-amber-500/25'
-                              : 'bg-blue-600 text-white border-blue-500 shadow-md shadow-blue-500/25'
-                            : 'bg-[#0d1524] border-[#1b2b46] text-slate-400 hover:text-slate-200'
-                        }`}
-                      >
-                        {p}
-                      </button>
-                    ))}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+                      Emergency Priority
+                    </label>
+                    <div className="flex items-center gap-1.5">
+                      {(['CRITICAL', 'HIGH', 'ROUTINE'] as const).map((p) => (
+                        <button
+                          key={p}
+                          type="button"
+                          onClick={() => setNewPriority(p)}
+                          className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all border cursor-pointer ${
+                            newPriority === p
+                              ? p === 'CRITICAL'
+                                ? 'bg-red-600 text-white border-red-500 shadow-md shadow-red-500/25'
+                                : p === 'HIGH'
+                                ? 'bg-amber-600 text-white border-amber-500 shadow-md shadow-amber-500/25'
+                                : 'bg-blue-600 text-white border-blue-500 shadow-md shadow-blue-500/25'
+                              : 'bg-[#0d1524] border-[#1b2b46] text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          {p}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
 
                 {/* Submit button */}
-                <div className="flex items-center justify-end gap-3 pt-3 border-t border-[#15233c]">
-                  <button
-                    type="button"
-                    onClick={() => setShowNewDispatchModal(false)}
-                    className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-all cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-6 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-blue-500/30 flex items-center gap-2 transition-all cursor-pointer"
-                  >
-                    <Send size={14} />
-                    <span>Authorize & Track Convoy</span>
-                  </button>
+                <div className="flex items-center justify-between gap-3 pt-3 border-t border-[#15233c]">
+                  <div className="text-xs text-slate-400">
+                    <span className="font-mono text-cyan-400 font-bold">{manifestItems.length}</span> Resources • ETA ~
+                    <span className="font-mono text-emerald-400 font-bold">{estimatedRouteInfo.etaMinutes} mins</span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowNewDispatchModal(false)}
+                      className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-all cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={manifestItems.length === 0}
+                      className="px-6 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-lg shadow-blue-500/30 flex items-center gap-2 transition-all cursor-pointer"
+                    >
+                      <Send size={14} />
+                      <span>Authorize & Launch Convoy</span>
+                    </button>
+                  </div>
                 </div>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* MODAL: REACHED INFORMATION & FIELD DEBRIEF SITUATION REPORT */}
+      <AnimatePresence>
+        {selectedReachedMission && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#070a12]/85 backdrop-blur-md">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="bg-[#090e1a] border border-emerald-500/50 rounded-2xl max-w-2xl w-full p-5 sm:p-6 shadow-2xl shadow-emerald-500/10 space-y-4 select-none max-h-[90vh] overflow-y-auto scrollbar-thin scrollbar-thumb-slate-800"
+            >
+              {/* Header with 3D Hero Icon */}
+              <div className="flex items-start justify-between border-b border-[#14233c] pb-4">
+                <div className="flex items-center gap-3.5">
+                  <div className="w-16 h-16 rounded-2xl bg-emerald-500/20 border border-emerald-500/50 p-2 flex items-center justify-center shadow-lg shadow-emerald-500/20 shrink-0">
+                    <UnitIcon3D
+                      type={selectedReachedMission.unitType || (selectedReachedMission.items?.[0]?.unitType) || 'militaryHelicopter'}
+                      size={52}
+                      animated={true}
+                    />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 rounded-md bg-emerald-500 text-slate-950 text-[10px] font-black uppercase tracking-wider">
+                        DELIVERED & OPERATIONAL
+                      </span>
+                      <span className="font-mono text-xs font-bold text-slate-300">
+                        {selectedReachedMission.id}
+                      </span>
+                      <span
+                        className={`text-[9px] px-1.5 py-0.2 rounded font-bold uppercase ${
+                          selectedReachedMission.priority === 'CRITICAL'
+                            ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                            : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                        }`}
+                      >
+                        {selectedReachedMission.priority}
+                      </span>
+                    </div>
+                    <h3 className="text-lg font-black text-white mt-1">
+                      Convoy Reached {selectedReachedMission.targetDistrict}
+                    </h3>
+                    <p className="text-xs text-slate-400">
+                      Dispatched from {selectedReachedMission.originDepot} via {selectedReachedMission.transportMode}
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setSelectedReachedMission(null)}
+                  className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg cursor-pointer"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Quick SitRep Telemetry Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                <div className="p-3 bg-[#0a1526] border border-[#152a4a] rounded-xl text-left">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
+                    Arrival Timestamp
+                  </span>
+                  <span className="text-sm font-mono font-bold text-emerald-400 mt-0.5 block">
+                    {selectedReachedMission.arrivalReport?.arrivedAt || '12:45 IST'}
+                  </span>
+                  <span className="text-[9px] text-slate-400">On Schedule</span>
+                </div>
+
+                <div className="p-3 bg-[#0a1526] border border-[#152a4a] rounded-xl text-left">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
+                    Transit Duration
+                  </span>
+                  <span className="text-sm font-mono font-bold text-cyan-400 mt-0.5 block">
+                    {selectedReachedMission.arrivalReport?.transitDurationMinutes || 42} mins
+                  </span>
+                  <span className="text-[9px] text-slate-400">Green corridor speed</span>
+                </div>
+
+                <div className="p-3 bg-[#0a1526] border border-[#152a4a] rounded-xl text-left">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
+                    Population Served
+                  </span>
+                  <span className="text-sm font-mono font-bold text-amber-400 mt-0.5 block">
+                    {(selectedReachedMission.arrivalReport?.beneficiariesServed || 4500).toLocaleString()}+
+                  </span>
+                  <span className="text-[9px] text-slate-400">Direct beneficiaries</span>
+                </div>
+
+                <div className="p-3 bg-[#0a1526] border border-[#152a4a] rounded-xl text-left">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
+                    Risk Deficit Relief
+                  </span>
+                  <span className="text-sm font-mono font-bold text-emerald-300 mt-0.5 block">
+                    -{selectedReachedMission.arrivalReport?.vulnerabilityReductionPct || 24}%
+                  </span>
+                  <span className="text-[9px] text-slate-400">Capacity increase</span>
+                </div>
+              </div>
+
+              {/* Itemized Deliverables Table */}
+              <div className="space-y-2 bg-[#060c18] p-3.5 rounded-xl border border-[#132238] text-left">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                    <CheckCircle2 size={14} className="text-emerald-400" />
+                    <span>Delivered Multi-Resource Inventory Manifest:</span>
+                  </span>
+                  <span className="text-[10px] font-mono text-emerald-400 font-bold">100% Accounted For</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                  {(selectedReachedMission.items && selectedReachedMission.items.length > 0
+                    ? selectedReachedMission.items
+                    : [
+                        {
+                          id: 'fallback-1',
+                          resourceType: 'ambulance',
+                          quantity: 4,
+                          unitLabel: 'ALS Trauma Ambulances',
+                          unitType: 'ambulance' as DispatchUnitType,
+                        },
+                      ]
+                  ).map((it, idx) => (
+                    <div
+                      key={idx}
+                      className="p-2.5 bg-[#091222] border border-[#182844] rounded-xl flex items-center justify-between gap-2"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-8 h-8 rounded-lg bg-[#0e1d35] border border-[#1c355e] p-1 flex items-center justify-center shrink-0">
+                          <UnitIcon3D
+                            type={it.unitType || (it.resourceType in DISPATCH_UNITS ? it.resourceType as DispatchUnitType : 'cargoTruck')}
+                            size={24}
+                          />
+                        </div>
+                        <span className="text-xs font-semibold text-slate-100 truncate">{it.unitLabel}</span>
+                      </div>
+                      <div className="text-right shrink-0 font-mono text-xs font-black text-cyan-300">
+                        {it.quantity.toLocaleString()} <span className="text-[10px] text-slate-400 font-normal">units</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Field Commander Situation Report */}
+              <div className="p-3 bg-[#0a1324] border border-blue-500/30 rounded-xl space-y-1.5 text-left text-xs">
+                <div className="flex items-center gap-2 text-blue-300 font-bold">
+                  <ShieldCheck size={14} className="text-emerald-400" />
+                  <span>Field Commander Situation Report (SitRep)</span>
+                </div>
+                <p className="text-slate-300 leading-relaxed text-[11px]">
+                  {selectedReachedMission.arrivalReport?.fieldCommanderNotes ||
+                    `Convoy has reached ${selectedReachedMission.targetDistrict} forward operations base. Field hospital triage tent erected, high-mobility boats launched into inundated tributaries.`}
+                </p>
+                <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-[#132238]">
+                  <span>Status: <strong className="text-emerald-400">Active Ground Operation</strong></span>
+                  <span>Incident Command: <strong className="text-slate-200">NDMA / SDMA Task Force 4</strong></span>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedReachedMission(null);
+                    setNewTargetDistrict(selectedReachedMission.targetDistrict);
+                    setShowNewDispatchModal(true);
+                  }}
+                  className="px-4 py-2.5 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/40 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Plus size={13} />
+                  <span>Dispatch Reinforcements to {selectedReachedMission.targetDistrict}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedReachedMission(null)}
+                  className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-500/30 transition-all cursor-pointer"
+                >
+                  Acknowledge & Close
+                </button>
+              </div>
             </motion.div>
           </div>
         )}

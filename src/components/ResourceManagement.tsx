@@ -81,41 +81,7 @@ export const ResourceManagement: React.FC = () => {
   const [dispatchQty, setDispatchQty] = useState<number>(50);
   const [dispatchMode, setDispatchMode] = useState<string>('Green Road Corridor (SDRF Convoy)');
   const [dispatchSuccessMsg, setDispatchSuccessMsg] = useState<string | null>(null);
-  const [dispatchLogs, setDispatchLogs] = useState<DispatchLog[]>([
-    {
-      id: 'DISP-101',
-      sourceState: 'Maharashtra',
-      targetState: 'Assam',
-      resourceKey: 'floatingClinics',
-      quantity: 2,
-      transitMode: 'Inland Waterway Rail Express',
-      etaHours: 36,
-      timestamp: '2 hrs ago',
-      status: 'In Transit',
-    },
-    {
-      id: 'DISP-102',
-      sourceState: 'Madhya Pradesh',
-      targetState: 'Bihar',
-      resourceKey: 'rationPackets',
-      quantity: 25000,
-      transitMode: 'Green Road Corridor (SDRF Convoy)',
-      etaHours: 14,
-      timestamp: '5 hrs ago',
-      status: 'In Transit',
-    },
-    {
-      id: 'DISP-103',
-      sourceState: 'Tamil Nadu',
-      targetState: 'Odisha',
-      resourceKey: 'waterMotorPumps',
-      quantity: 120,
-      transitMode: 'Express Freight Link',
-      etaHours: 18,
-      timestamp: 'Yesterday',
-      status: 'Arrived',
-    },
-  ]);
+  const [dispatchLogs, setDispatchLogs] = useState<DispatchLog[]>([]);
 
   // Compute live national summaries
   const nationalSummary = useMemo(() => getNationalResourceSummary(statesData), [statesData]);
@@ -992,7 +958,16 @@ export const ResourceManagement: React.FC = () => {
               </div>
 
               <div className="space-y-2.5 overflow-y-auto max-h-[440px] pr-1 scrollbar-thin scrollbar-thumb-slate-800">
-                {dispatchLogs.map((log) => (
+                {dispatchLogs.length === 0 ? (
+                  <div className="p-8 text-center bg-[#070a12] border border-slate-800/80 rounded-xl space-y-2.5 my-auto">
+                    <Truck className="mx-auto text-slate-600" size={32} />
+                    <p className="text-sm font-bold text-slate-300">No Interstate Dispatches Logged</p>
+                    <p className="text-xs text-slate-500 max-w-sm mx-auto leading-relaxed">
+                      Use the Inter-State Mobilization Simulator on the left to dispatch relief convoys and supplies from surplus staging facilities to disaster-impacted states.
+                    </p>
+                  </div>
+                ) : (
+                  dispatchLogs.map((log) => (
                   <div
                     key={log.id}
                     className="p-3.5 bg-[#070a12] border border-slate-800 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:border-slate-700 transition-colors"
@@ -1035,7 +1010,7 @@ export const ResourceManagement: React.FC = () => {
                       </span>
                     </div>
                   </div>
-                ))}
+                )))}
               </div>
             </div>
 

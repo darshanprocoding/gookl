@@ -613,3 +613,123 @@ export const UnitIcon3D: React.FC<UnitIcon3DProps> = ({
       return null;
   }
 };
+
+export function getUnitInfo(unitType: string): DispatchUnitInfo {
+  if (unitType in DISPATCH_UNITS) {
+    return DISPATCH_UNITS[unitType as DispatchUnitType];
+  }
+  const lower = (unitType || '').toLowerCase();
+  if (lower.includes('helico') || lower.includes('iaf') || lower.includes('airlift') || lower.includes('chopper')) {
+    return DISPATCH_UNITS.militaryHelicopter;
+  }
+  if (lower.includes('boat') || lower.includes('water') || lower.includes('marine') || lower.includes('gemini') || lower.includes('clinic')) {
+    return DISPATCH_UNITS.motorBoat;
+  }
+  if (lower.includes('ambu') || lower.includes('medic') || lower.includes('icu') || lower.includes('trauma')) {
+    return DISPATCH_UNITS.ambulance;
+  }
+  if (lower.includes('fire') || lower.includes('tender') || lower.includes('ladder')) {
+    return DISPATCH_UNITS.fireEngine;
+  }
+  if (lower.includes('police') || lower.includes('qrt') || lower.includes('security') || lower.includes('cordon') || lower.includes('patrol')) {
+    return DISPATCH_UNITS.policeUnit;
+  }
+  if (lower.includes('drone') || lower.includes('recon') || lower.includes('aerial') || lower.includes('lidar')) {
+    return DISPATCH_UNITS.reconDrone;
+  }
+  return DISPATCH_UNITS.cargoTruck;
+}
+
+export interface PresetDispatchBundle {
+  id: string;
+  name: string;
+  description: string;
+  leadUnitType: DispatchUnitType;
+  transportMode: 'Green Road Corridor' | 'Waterway Fleet / Boat' | 'High-Mobility 4x4' | 'IAF Airlift';
+  priority: 'CRITICAL' | 'HIGH' | 'ROUTINE';
+  items: Array<{
+    resourceType: string;
+    quantity: number;
+    unitLabel: string;
+    unitType?: DispatchUnitType;
+  }>;
+}
+
+export const DISPATCH_PRESET_BUNDLES: PresetDispatchBundle[] = [
+  {
+    id: 'flood-rescue-task-force',
+    name: 'Flood & River Inundation Task Force',
+    description: 'High-speed motor rescue boats, dewatering pumps, floating medical triage, and emergency airdrop rations.',
+    leadUnitType: 'motorBoat',
+    transportMode: 'Waterway Fleet / Boat',
+    priority: 'CRITICAL',
+    items: [
+      { resourceType: 'motorBoat', quantity: 6, unitLabel: 'Gemini Inflatable Boats', unitType: 'motorBoat' },
+      { resourceType: 'militaryHelicopter', quantity: 2, unitLabel: 'IAF Dhruv / Mi-17 Choppers', unitType: 'militaryHelicopter' },
+      { resourceType: 'ambulance', quantity: 4, unitLabel: 'ALS Trauma Ambulances', unitType: 'ambulance' },
+      { resourceType: 'waterMotorPumps', quantity: 30, unitLabel: 'Trash Dewatering Pumps', unitType: 'cargoTruck' },
+      { resourceType: 'rationPackets', quantity: 12000, unitLabel: 'Family Rations', unitType: 'cargoTruck' },
+      { resourceType: 'tarpTentKits', quantity: 4000, unitLabel: 'Relief Tents & Tarps', unitType: 'cargoTruck' },
+    ],
+  },
+  {
+    id: 'mass-casualty-trauma-fleet',
+    name: 'Mass Trauma & Casualty Evacuation Wing',
+    description: 'ICU mobile trauma units, tactical police cordons, high-altitude air ambulances, and generator sets.',
+    leadUnitType: 'ambulance',
+    transportMode: 'Green Road Corridor',
+    priority: 'CRITICAL',
+    items: [
+      { resourceType: 'ambulance', quantity: 8, unitLabel: 'ALS Trauma Ambulances', unitType: 'ambulance' },
+      { resourceType: 'militaryHelicopter', quantity: 2, unitLabel: 'IAF Air Rescue Winch Helis', unitType: 'militaryHelicopter' },
+      { resourceType: 'policeUnit', quantity: 4, unitLabel: 'Police QRT Cordon Vans', unitType: 'policeUnit' },
+      { resourceType: 'medicalFirstAidUnits', quantity: 450, unitLabel: 'Trauma & Oxygen Kits', unitType: 'cargoTruck' },
+      { resourceType: 'emergencyGenerators', quantity: 8, unitLabel: 'Mobile DG Sets (125 kVA)', unitType: 'cargoTruck' },
+    ],
+  },
+  {
+    id: 'urban-collapse-fire-strike',
+    name: 'Urban Collapse & Fire Suppression Strike Group',
+    description: 'Heavy hydraulic boom fire tenders, concrete cutting earthmovers, police perimeter, and recon drones.',
+    leadUnitType: 'fireEngine',
+    transportMode: 'High-Mobility 4x4',
+    priority: 'CRITICAL',
+    items: [
+      { resourceType: 'fireEngine', quantity: 6, unitLabel: 'Heavy Water Tenders & Hydraulic Ladders', unitType: 'fireEngine' },
+      { resourceType: 'ambulance', quantity: 5, unitLabel: 'ALS Trauma Ambulances', unitType: 'ambulance' },
+      { resourceType: 'policeUnit', quantity: 3, unitLabel: 'Police QRT Security Cruisers', unitType: 'policeUnit' },
+      { resourceType: 'reconDrone', quantity: 4, unitLabel: 'Thermal Survivor Recon Drones', unitType: 'reconDrone' },
+      { resourceType: 'debrisMachinery', quantity: 8, unitLabel: 'Hydraulic Breakers & Excavators', unitType: 'cargoTruck' },
+    ],
+  },
+  {
+    id: 'remote-airdrop-ridge-rescue',
+    name: 'Remote High-Altitude Airdrop & Ridge Rescue',
+    description: 'Medium-lift tactical IAF helicopters, precision dropper drones, snow-chain 4x4s, and mountain rations.',
+    leadUnitType: 'militaryHelicopter',
+    transportMode: 'IAF Airlift',
+    priority: 'CRITICAL',
+    items: [
+      { resourceType: 'militaryHelicopter', quantity: 3, unitLabel: 'IAF Mi-17V5 Heavy Tactical Helis', unitType: 'militaryHelicopter' },
+      { resourceType: 'reconDrone', quantity: 6, unitLabel: 'LiDAR Thermal Mapping Drones', unitType: 'reconDrone' },
+      { resourceType: 'ambulance', quantity: 3, unitLabel: '4x4 Snow Chains Ambulances', unitType: 'ambulance' },
+      { resourceType: 'rationPackets', quantity: 15000, unitLabel: 'High-Altitude Emergency Rations', unitType: 'cargoTruck' },
+      { resourceType: 'tarpTentKits', quantity: 6000, unitLabel: 'Thermal Insulated Shelter Kits', unitType: 'cargoTruck' },
+    ],
+  },
+  {
+    id: 'drought-heatwave-mitigation',
+    name: 'Drought & Heatwave Extreme Relief Fleet',
+    description: 'High-capacity potable water bowsers, mobile cooling trauma clinics, police heat patrol, and power backup.',
+    leadUnitType: 'cargoTruck',
+    transportMode: 'Green Road Corridor',
+    priority: 'HIGH',
+    items: [
+      { resourceType: 'waterTankers', quantity: 30, unitLabel: 'Potable Water Bowsers (10,000L)', unitType: 'cargoTruck' },
+      { resourceType: 'ambulance', quantity: 6, unitLabel: 'Heatstroke Rapid Cooling Mobile Clinics', unitType: 'ambulance' },
+      { resourceType: 'policeUnit', quantity: 4, unitLabel: 'Police Heatwave Alert & Cordon Vans', unitType: 'policeUnit' },
+      { resourceType: 'emergencyGenerators', quantity: 12, unitLabel: 'Primary Hospital Backup DG Sets', unitType: 'cargoTruck' },
+      { resourceType: 'rationPackets', quantity: 8000, unitLabel: 'Oral Rehydration & Nutritional Kits', unitType: 'cargoTruck' },
+    ],
+  },
+];
