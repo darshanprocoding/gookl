@@ -9,6 +9,19 @@ import {
   SEVERITY_LEVELS_BY_TYPE,
   computeZoneVulnerability,
 } from '../utils/vulnerabilityMath';
+import {
+  STATE_RESOURCE_DATA,
+  StateResourceProfile,
+} from '../data/stateResourceData';
+import {
+  DispatchMission,
+  DispatchResourceItem,
+  DispatchArrivalReport,
+  DispatchLog,
+  DispatchValidationItem,
+  DispatchValidationShortfall,
+  ValidateDispatchResult,
+} from '../types';
 
 export interface DisasterSimulationContextType {
   // Active Disaster State
@@ -38,6 +51,39 @@ export interface DisasterSimulationContextType {
   currentSeverity: DisasterSeverityOption;
   activeParams: DisasterParameters;
 
+  // Live State-Wise Resource Inventory & Active Dispatches
+  statesData: StateResourceProfile[];
+  setStatesData: React.Dispatch<React.SetStateAction<StateResourceProfile[]>>;
+  dispatches: DispatchMission[];
+  setDispatches: React.Dispatch<React.SetStateAction<DispatchMission[]>>;
+  dispatchLogs: DispatchLog[];
+
+  // Resource Dispatch Actions & Validation
+  validateDispatch: (
+    stateId: string,
+    items: DispatchValidationItem[] | DispatchValidationItem,
+    options?: {
+      autoCommit?: boolean;
+      missionDetails?: Partial<DispatchMission>;
+      interState?: {
+        targetStateId: string;
+        transitMode: string;
+        priority?: 'CRITICAL' | 'HIGH' | 'ROUTINE';
+      };
+    }
+  ) => ValidateDispatchResult;
+  dispatchMission: (mission: DispatchMission) => ValidateDispatchResult;
+  cancelDispatch: (dispatchId: string) => void;
+  updateDispatchProgress: (dispatchId: string, progress: number, status?: DispatchMission['status'], arrivalReport?: DispatchArrivalReport) => void;
+  interStateDispatch: (
+    sourceStateId: string,
+    targetStateId: string,
+    resourceKey: keyof StateResourceProfile['resources'],
+    quantity: number,
+    transitMode: string,
+    priority?: 'CRITICAL' | 'HIGH' | 'ROUTINE'
+  ) => { success: boolean; message: string; log?: DispatchLog };
+
   // Mutators & Presets
   setDisasterType: (type: DisasterType) => void;
   setSelectedSeverityId: (id: string) => void;
@@ -61,6 +107,80 @@ export interface DisasterSimulationContextType {
   getZoneRGB: (score: number, isAffected?: boolean) => [number, number, number];
   getZoneVulnerability: (district: DistrictData) => ZoneScoreCalculation;
 }
+
+// Helper to map item resourceType string to StateResourceProfile resource key
+export const mapToResourceKey = (resourceType: string): keyof StateResourceProfile['resources'] => {
+  const lower = (resourceType || '').toLowerCase().trim();
+  
+  // Dewatering & Sludge Pumps
+  if (lower.includes('pump') || lower.includes('dewatering')) {
+    return 'waterMotorPumps';
+  }
+
+  // Clean Potable Water Tankers & Bowsers (including 'tank', 'tanks', 'bowser', 'potable')
+  if (
+    lower.includes('tanker') ||
+    lower.includes('tank') ||
+    lower.includes('bowser') ||
+    lower.includes('potable') ||
+    lower.includes('water')
+  ) {
+    return 'waterTankers';
+  }
+
+  // Food & Dry Rations
+  if (lower.includes('ration') || lower.includes('food') || lower.includes('meal') || lower.includes('grain')) {
+    return 'rationPackets';
+  }
+
+  // Medical Float Clinics, Boat Clinics & Mobile Trauma Units
+  if (
+    lower.includes('clinic') ||
+    lower.includes('boat') ||
+    lower.includes('ambu') ||
+    lower.includes('medic') ||
+    lower.includes('firstaid') ||
+    lower.includes('drone') ||
+    lower.includes('trauma')
+  ) {
+    return 'floatingClinics';
+  }
+
+  // Heavy Debris Machines & Recovery Transport
+  if (
+    lower.includes('debris') ||
+    lower.includes('machin') ||
+    lower.includes('truck') ||
+    lower.includes('fire') ||
+    lower.includes('police') ||
+    lower.includes('helico') ||
+    lower.includes('excavator') ||
+    lower.includes('jcb') ||
+    lower.includes('earthmover') ||
+    lower.includes('carrier')
+  ) {
+    return 'debrisMachinery';
+  }
+
+  // Emergency Power Generators & DG Sets
+  if (lower.includes('gen') || lower.includes('power') || lower.includes('electricity') || lower.includes('dg set')) {
+    return 'emergencyGenerators';
+  }
+
+  // Tents, Tarpaulins & Emergency Shelters
+  if (lower.includes('tent') || lower.includes('tarp') || lower.includes('shelter') || lower.includes('dome')) {
+    return 'tarpTentKits';
+  }
+  
+  if (resourceType === 'waterTankers' || resourceType === 'waterBowsers') return 'waterTankers';
+  if (resourceType === 'rationPackets' || resourceType === 'rations') return 'rationPackets';
+  if (resourceType === 'floatingClinics' || resourceType === 'motorBoat' || resourceType === 'ambulance' || resourceType === 'medicalFirstAidUnits') return 'floatingClinics';
+  if (resourceType === 'debrisMachinery' || resourceType === 'cargoTruck' || resourceType === 'fireEngine' || resourceType === 'policeUnit' || resourceType === 'militaryHelicopter') return 'debrisMachinery';
+  if (resourceType === 'emergencyGenerators' || resourceType === 'generators') return 'emergencyGenerators';
+  if (resourceType === 'tarpTentKits' || resourceType === 'tents') return 'tarpTentKits';
+  if (resourceType === 'waterMotorPumps' || resourceType === 'pumps') return 'waterMotorPumps';
+  return 'waterTankers';
+};
 
 const DisasterSimulationContext = createContext<DisasterSimulationContextType | undefined>(undefined);
 
@@ -90,6 +210,360 @@ export const DisasterSimulationProvider: React.FC<{ children: React.ReactNode }>
 
   const [customAdpLife, setCustomAdpLife] = useState<number>(0.55);
   const [customAdpEws, setCustomAdpEws] = useState<number>(0.45);
+
+  // Live Synchronized State Inventory & Dispatches
+  const [statesData, setStatesData] = useState<StateResourceProfile[]>(() => {
+    return JSON.parse(JSON.stringify(STATE_RESOURCE_DATA));
+  });
+  const [dispatches, setDispatches] = useState<DispatchMission[]>([]);
+  const [dispatchLogs, setDispatchLogs] = useState<DispatchLog[]>([]);
+
+  /**
+   * validateDispatch:
+   * 1. Validates that outgoing resource quantities do not exceed available inReserve inventory levels.
+   * 2. Detects any shortfalls, negative quantities, or invalid state targets.
+   * 3. When autoCommit is enabled, performs an atomic state update on statesData:
+   *    - Deducts from inReserve (standby inventory)
+   *    - Adds to active (deployed in-field)
+   *    - Total stock is strictly preserved (total = inReserve + active + inMaintenance)
+   *    - Atomically updates dispatches and dispatch logs.
+   */
+  const validateDispatch = useCallback((
+    stateId: string,
+    items: DispatchValidationItem[] | DispatchValidationItem,
+    options?: {
+      autoCommit?: boolean;
+      missionDetails?: Partial<DispatchMission>;
+      interState?: {
+        targetStateId: string;
+        transitMode: string;
+        priority?: 'CRITICAL' | 'HIGH' | 'ROUTINE';
+      };
+    }
+  ): ValidateDispatchResult => {
+    const rawItems = Array.isArray(items) ? items : [items];
+    const sourceState = statesData.find((s) => s.id === stateId);
+
+    if (!sourceState) {
+      return {
+        valid: false,
+        message: `Origin state profile "${stateId}" was not found in the national inventory database.`,
+        shortfalls: [],
+        adjustedItems: [],
+      };
+    }
+
+    const shortfalls: DispatchValidationShortfall[] = [];
+    const adjustedItems: DispatchResourceItem[] = [];
+
+    // Group items by resourceKey to prevent duplicate line items from collectively exceeding inventory
+    const aggregatedRequests: Record<keyof StateResourceProfile['resources'], number> = {
+      waterTankers: 0,
+      rationPackets: 0,
+      floatingClinics: 0,
+      debrisMachinery: 0,
+      emergencyGenerators: 0,
+      tarpTentKits: 0,
+      waterMotorPumps: 0,
+    };
+
+    for (const it of rawItems) {
+      const resKey = mapToResourceKey(it.resourceType);
+      const qty = Math.max(0, Number(it.quantity) || 0);
+      aggregatedRequests[resKey] += qty;
+    }
+
+    // Check aggregated requests against current available inReserve
+    for (const key of Object.keys(aggregatedRequests) as (keyof StateResourceProfile['resources'])[]) {
+      const requested = aggregatedRequests[key];
+      if (requested > 0) {
+        const currentStock = sourceState.resources[key];
+        const available = currentStock ? currentStock.inReserve : 0;
+        if (requested > available) {
+          shortfalls.push({
+            resourceType: key,
+            resourceKey: key,
+            requested,
+            available,
+            deficit: requested - available,
+          });
+        }
+      }
+    }
+
+    // Build normalized adjusted items
+    for (const it of rawItems) {
+      const resKey = mapToResourceKey(it.resourceType);
+      const available = sourceState.resources[resKey]?.inReserve ?? 0;
+      const requestedQty = Math.max(1, Number(it.quantity) || 1);
+      const safeQty = Math.max(1, Math.min(requestedQty, available > 0 ? available : requestedQty));
+
+      adjustedItems.push({
+        id: it.id || `item-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        resourceType: it.resourceType,
+        quantity: safeQty,
+        unitLabel: it.unitLabel || it.resourceType,
+        unitType: it.unitType || 'cargoTruck',
+      });
+    }
+
+    if (shortfalls.length > 0) {
+      const shortfallDesc = shortfalls
+        .map(
+          (s) =>
+            `${s.resourceType}: requested ${s.requested.toLocaleString()} > standby reserve ${s.available.toLocaleString()}`
+        )
+        .join('; ');
+      return {
+        valid: false,
+        message: `Dispatch validation failed: Outgoing quantities exceed available inventory in ${sourceState.stateName} (${shortfallDesc}).`,
+        shortfalls,
+        adjustedItems,
+      };
+    }
+
+    if (rawItems.length === 0 || rawItems.every((it) => (Number(it.quantity) || 0) <= 0)) {
+      return {
+        valid: false,
+        message: 'Dispatch validation failed: Manifest contains no valid resource items with quantity > 0.',
+        shortfalls: [],
+        adjustedItems: [],
+      };
+    }
+
+    // If autoCommit requested, execute atomic state update
+    if (options?.autoCommit) {
+      let createdMission: DispatchMission | undefined;
+
+      // ATOMIC UPDATE: Deduct from inReserve and add to active
+      setStatesData((prevStates) => {
+        return prevStates.map((st) => {
+          if (st.id !== stateId) return st;
+
+          const updatedResources = { ...st.resources };
+
+          adjustedItems.forEach((item) => {
+            const resKey = mapToResourceKey(item.resourceType);
+            const cur = updatedResources[resKey];
+            if (cur) {
+              const qty = Math.min(item.quantity, cur.inReserve);
+              updatedResources[resKey] = {
+                ...cur,
+                total: cur.total, // Strict conservation
+                inReserve: Math.max(0, cur.inReserve - qty),
+                active: cur.active + qty,
+              };
+            }
+          });
+
+          return {
+            ...st,
+            resources: updatedResources,
+          };
+        });
+      });
+
+      // Commit mission details
+      if (options.missionDetails) {
+        createdMission = {
+          id: options.missionDetails.id || `DSP-${Math.floor(1000 + Math.random() * 9000)}`,
+          stateId,
+          targetDistrict: options.missionDetails.targetDistrict || 'Active Sector',
+          targetCoords: options.missionDetails.targetCoords || [85.1376, 25.5941],
+          originDepot: options.missionDetails.originDepot || `${sourceState.primaryDepotLocation} (${sourceState.stateName})`,
+          originCoords: options.missionDetails.originCoords || [72.8777, 19.076],
+          items: adjustedItems,
+          unitType: options.missionDetails.unitType || adjustedItems[0]?.unitType || 'cargoTruck',
+          transportMode: options.missionDetails.transportMode || 'Green Road Corridor',
+          status: options.missionDetails.status || 'In Transit',
+          progress: options.missionDetails.progress ?? 4,
+          etaMinutes: options.missionDetails.etaMinutes ?? 45,
+          priority: options.missionDetails.priority || 'CRITICAL',
+          dispatchedAt: options.missionDetails.dispatchedAt || 'Just now',
+        };
+        setDispatches((prev) => [createdMission!, ...prev]);
+      }
+
+      // If inter-state mutual aid dispatch details are supplied
+      if (options.interState) {
+        const targetState = statesData.find((s) => s.id === options.interState?.targetStateId);
+        const targetName = targetState?.stateName || options.interState.targetStateId;
+        const etaHours = Math.round(18 + Math.random() * 24);
+
+        adjustedItems.forEach((it) => {
+          const newLog: DispatchLog = {
+            id: `NDMA-LOG-${Date.now().toString().slice(-4)}`,
+            timestamp: new Date().toLocaleTimeString(),
+            sourceState: sourceState.stateName,
+            targetState: targetName,
+            resourceKey: mapToResourceKey(it.resourceType),
+            quantity: it.quantity,
+            transitMode: options.interState!.transitMode,
+            etaHours,
+            status: 'In Transit',
+          };
+          setDispatchLogs((prev) => [newLog, ...prev]);
+        });
+      }
+
+      return {
+        valid: true,
+        message: `Dispatch successfully authorized and committed: ${adjustedItems
+          .map((i) => `${i.quantity.toLocaleString()} ${i.unitLabel}`)
+          .join(', ')} mobilized from ${sourceState.stateName}.`,
+        shortfalls: [],
+        adjustedItems,
+        committedMission: createdMission,
+      };
+    }
+
+    return {
+      valid: true,
+      message: `Dispatch validation passed: ${adjustedItems
+        .map((i) => `${i.quantity.toLocaleString()} ${i.unitLabel}`)
+        .join(', ')} is verified against available standby reserve in ${sourceState.stateName}.`,
+      shortfalls: [],
+      adjustedItems,
+    };
+  }, [statesData]);
+
+  // Dispatch Mission: Validates and atomically updates inventory
+  const dispatchMission = useCallback((mission: DispatchMission): ValidateDispatchResult => {
+    return validateDispatch(mission.stateId, mission.items, {
+      autoCommit: true,
+      missionDetails: mission,
+    });
+  }, [validateDispatch]);
+
+  // Cancel Dispatch: Returns exact items from active (actv) back to inReserve (res)
+  const cancelDispatch = useCallback((dispatchId: string) => {
+    setDispatches((prevDispatches) => {
+      const mission = prevDispatches.find((d) => d.id === dispatchId);
+      if (mission) {
+        setStatesData((prevStates) => {
+          return prevStates.map((st) => {
+            if (st.id !== mission.stateId) return st;
+
+            const updatedResources = { ...st.resources };
+            (mission.items || []).forEach((item) => {
+              const resKey = mapToResourceKey(item.resourceType);
+              const cur = updatedResources[resKey];
+              if (cur) {
+                const requestedQty = Math.max(1, Number(item.quantity) || 1);
+                const returnQty = Math.min(requestedQty, cur.active);
+                updatedResources[resKey] = {
+                  ...cur,
+                  total: cur.total, // STRICT CONSERVATION: Total never changes
+                  inReserve: cur.inReserve + returnQty,
+                  active: Math.max(0, cur.active - returnQty),
+                };
+              }
+            });
+
+            return {
+              ...st,
+              resources: updatedResources,
+            };
+          });
+        });
+      }
+      return prevDispatches.filter((d) => d.id !== dispatchId);
+    });
+  }, []);
+
+  // Update Mission Progress & SitRep
+  const updateDispatchProgress = useCallback((
+    dispatchId: string,
+    progress: number,
+    status?: DispatchMission['status'],
+    arrivalReport?: DispatchArrivalReport
+  ) => {
+    setDispatches((prev) =>
+      prev.map((d) => {
+        if (d.id === dispatchId) {
+          return {
+            ...d,
+            progress,
+            status: status || d.status,
+            arrivalReport: arrivalReport || d.arrivalReport,
+            arrivedAt: status === 'Arrived & Active' && !d.arrivedAt ? 'Just now' : d.arrivedAt,
+          };
+        }
+        return d;
+      })
+    );
+  }, []);
+
+  // Inter-State Mutual Aid Dispatch: Validates and atomically moves resources
+  const interStateDispatch = useCallback((
+    sourceStateId: string,
+    targetStateId: string,
+    resourceKey: keyof StateResourceProfile['resources'],
+    quantity: number,
+    transitMode: string,
+    priority: 'CRITICAL' | 'HIGH' | 'ROUTINE' = 'CRITICAL'
+  ) => {
+    const source = statesData.find((s) => s.id === sourceStateId);
+    const target = statesData.find((s) => s.id === targetStateId);
+
+    if (!source || !target) {
+      return { success: false, message: 'Source or target state not found.' };
+    }
+
+    const validation = validateDispatch(
+      sourceStateId,
+      [
+        {
+          resourceType: resourceKey,
+          quantity,
+          unitLabel: resourceKey,
+          unitType: 'cargoTruck',
+        },
+      ],
+      {
+        autoCommit: true,
+        missionDetails: {
+          id: `DSP-INT-${Math.floor(1000 + Math.random() * 9000)}`,
+          targetDistrict: `${target.capital} Sector Hub`,
+          targetCoords: [85.1376, 25.5941],
+          originDepot: `${source.primaryDepotLocation} (${source.stateName})`,
+          originCoords: [72.8777, 19.0760],
+          transportMode: 'Green Road Corridor',
+          priority,
+        },
+        interState: {
+          targetStateId,
+          transitMode,
+          priority,
+        },
+      }
+    );
+
+    if (!validation.valid) {
+      return {
+        success: false,
+        message: validation.message,
+      };
+    }
+
+    const newLog: DispatchLog = {
+      id: `NDMA-LOG-${Date.now().toString().slice(-4)}`,
+      timestamp: new Date().toLocaleTimeString(),
+      sourceState: source.stateName,
+      targetState: target.stateName,
+      resourceKey,
+      quantity,
+      transitMode,
+      etaHours: Math.round(18 + Math.random() * 24),
+      status: 'In Transit',
+    };
+
+    return {
+      success: true,
+      message: `Successfully mobilized ${quantity.toLocaleString()} units from ${source.stateName} to ${target.stateName}. Standby inventory deducted and marked active.`,
+      log: newLog,
+    };
+  }, [statesData, validateDispatch]);
 
   // Switch disaster type and sync its presets
   const setDisasterType = useCallback((type: DisasterType) => {
@@ -328,6 +802,16 @@ export const DisasterSimulationProvider: React.FC<{ children: React.ReactNode }>
         customAdpEws,
         currentSeverity,
         activeParams,
+        statesData,
+        setStatesData,
+        dispatches,
+        setDispatches,
+        dispatchLogs,
+        validateDispatch,
+        dispatchMission,
+        cancelDispatch,
+        updateDispatchProgress,
+        interStateDispatch,
         setDisasterType,
         setSelectedSeverityId,
         setEpicenter,

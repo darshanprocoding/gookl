@@ -1,1 +1,35 @@
 @import "tailwindcss";
+
+@layer utilities {
+  @keyframes spin-slow {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  .animate-spin-slow {
+    animation: spin-slow 24s linear infinite;
+  }
+}
+
+/* Custom Tiranga Themed Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #060b18;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #1e325c;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #ff9933;
+}

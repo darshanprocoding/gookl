@@ -614,6 +614,213 @@ export const UnitIcon3D: React.FC<UnitIcon3DProps> = ({
   }
 };
 
+export interface DispatchResourceCatalogItem {
+  id: string;
+  name: string;
+  shortName: string;
+  category: 'vehicle' | 'supply';
+  unitMeasure: string;
+  defaultUnitType: DispatchUnitType;
+  defaultQty: number;
+}
+
+export const DISPATCH_RESOURCE_CATALOG: Record<string, DispatchResourceCatalogItem> = {
+  // Emergency Tactical Vehicles & Response Teams
+  ambulance: {
+    id: 'ambulance',
+    name: 'ALS Advanced Trauma Ambulances',
+    shortName: 'ALS Trauma Ambulances',
+    category: 'vehicle',
+    unitMeasure: 'Ambulances',
+    defaultUnitType: 'ambulance',
+    defaultQty: 4,
+  },
+  fireEngine: {
+    id: 'fireEngine',
+    name: 'High-Reach Fire & Rescue Engines',
+    shortName: 'Fire & Rescue Engines',
+    category: 'vehicle',
+    unitMeasure: 'Fire Tenders',
+    defaultUnitType: 'fireEngine',
+    defaultQty: 4,
+  },
+  policeUnit: {
+    id: 'policeUnit',
+    name: 'Police & SDRF Quick Response Units',
+    shortName: 'Police QRT Units',
+    category: 'vehicle',
+    unitMeasure: 'Patrol Units',
+    defaultUnitType: 'policeUnit',
+    defaultQty: 4,
+  },
+  militaryHelicopter: {
+    id: 'militaryHelicopter',
+    name: 'IAF Mi-17V5 Heavy Tactical Helicopters',
+    shortName: 'IAF Mi-17 Helicopters',
+    category: 'vehicle',
+    unitMeasure: 'Helicopters',
+    defaultUnitType: 'militaryHelicopter',
+    defaultQty: 2,
+  },
+  motorBoat: {
+    id: 'motorBoat',
+    name: 'Inflatable Motor Boats (Gemini Craft)',
+    shortName: 'Inflatable Motor Boats',
+    category: 'vehicle',
+    unitMeasure: 'Motor Boats',
+    defaultUnitType: 'motorBoat',
+    defaultQty: 6,
+  },
+  reconDrone: {
+    id: 'reconDrone',
+    name: 'Disaster Recon & Dropper Drones',
+    shortName: 'Aerial Recon Drones',
+    category: 'vehicle',
+    unitMeasure: 'Drones',
+    defaultUnitType: 'reconDrone',
+    defaultQty: 4,
+  },
+
+  // Disaster Relief Supplies & Ground Hardware
+  rationPackets: {
+    id: 'rationPackets',
+    name: 'Family Food Ration Packets',
+    shortName: 'Family Food Rations',
+    category: 'supply',
+    unitMeasure: 'Family Kits',
+    defaultUnitType: 'cargoTruck',
+    defaultQty: 5000,
+  },
+  medicalFirstAidUnits: {
+    id: 'medicalFirstAidUnits',
+    name: 'Trauma & Heat-Stroke First Aid Kits',
+    shortName: 'First Aid Trauma Kits',
+    category: 'supply',
+    unitMeasure: 'Trauma Kits',
+    defaultUnitType: 'cargoTruck',
+    defaultQty: 250,
+  },
+  waterTankers: {
+    id: 'waterTankers',
+    name: 'Potable Water Bowsers (10,000 L)',
+    shortName: 'Potable Water Bowsers',
+    category: 'supply',
+    unitMeasure: 'Water Bowsers',
+    defaultUnitType: 'cargoTruck',
+    defaultQty: 10,
+  },
+  debrisMachinery: {
+    id: 'debrisMachinery',
+    name: 'Heavy Debris Excavators & Earthmovers',
+    shortName: 'Excavators & Earthmovers',
+    category: 'supply',
+    unitMeasure: 'Machines',
+    defaultUnitType: 'cargoTruck',
+    defaultQty: 6,
+  },
+  emergencyGenerators: {
+    id: 'emergencyGenerators',
+    name: 'Emergency DG Generator Sets',
+    shortName: 'Emergency DG Generators',
+    category: 'supply',
+    unitMeasure: 'DG Sets',
+    defaultUnitType: 'cargoTruck',
+    defaultQty: 8,
+  },
+  tarpTentKits: {
+    id: 'tarpTentKits',
+    name: 'Weatherproof Disaster Tents & Tarps',
+    shortName: 'Disaster Tents & Tarps',
+    category: 'supply',
+    unitMeasure: 'Shelter Kits',
+    defaultUnitType: 'cargoTruck',
+    defaultQty: 2000,
+  },
+  waterMotorPumps: {
+    id: 'waterMotorPumps',
+    name: 'High-Volume Dewatering Trash Pumps',
+    shortName: 'Dewatering Trash Pumps',
+    category: 'supply',
+    unitMeasure: 'Pump Units',
+    defaultUnitType: 'cargoTruck',
+    defaultQty: 20,
+  },
+  floatingClinics: {
+    id: 'floatingClinics',
+    name: 'Inflatable Boat Mobile Clinics',
+    shortName: 'Floating Boat Clinics',
+    category: 'supply',
+    unitMeasure: 'Boat Clinics',
+    defaultUnitType: 'motorBoat',
+    defaultQty: 4,
+  },
+  cargoTruck: {
+    id: 'cargoTruck',
+    name: 'NDMA 10-Ton Heavy Logistics Relief Carriers',
+    shortName: 'Heavy Logistics Trucks',
+    category: 'vehicle',
+    unitMeasure: 'Trucks',
+    defaultUnitType: 'cargoTruck',
+    defaultQty: 5,
+  },
+};
+
+export function getResourceDisplayName(resourceType: string): string {
+  if (resourceType in DISPATCH_RESOURCE_CATALOG) {
+    return DISPATCH_RESOURCE_CATALOG[resourceType].name;
+  }
+  if (resourceType in DISPATCH_UNITS) {
+    return DISPATCH_UNITS[resourceType as DispatchUnitType].name;
+  }
+  // Fallback cleanly formatted
+  return resourceType
+    .replace(/([A-Z])/g, ' $1')
+    .replace(/^./, (str) => str.toUpperCase())
+    .trim();
+}
+
+export function getResourceShortName(resourceType: string): string {
+  if (resourceType in DISPATCH_RESOURCE_CATALOG) {
+    return DISPATCH_RESOURCE_CATALOG[resourceType].shortName;
+  }
+  if (resourceType in DISPATCH_UNITS) {
+    return DISPATCH_UNITS[resourceType as DispatchUnitType].shortName;
+  }
+  return resourceType
+    .replace(/([A-Z])/g, ' $1')
+    .replace(/^./, (str) => str.toUpperCase())
+    .trim();
+}
+
+export function getResourceDefaultUnitType(resourceType: string): DispatchUnitType {
+  if (resourceType in DISPATCH_RESOURCE_CATALOG) {
+    return DISPATCH_RESOURCE_CATALOG[resourceType].defaultUnitType;
+  }
+  if (resourceType in DISPATCH_UNITS) {
+    return resourceType as DispatchUnitType;
+  }
+  const lower = (resourceType || '').toLowerCase();
+  if (lower.includes('helico') || lower.includes('iaf') || lower.includes('airlift')) {
+    return 'militaryHelicopter';
+  }
+  if (lower.includes('boat') || lower.includes('water') || lower.includes('marine') || lower.includes('clinic')) {
+    return 'motorBoat';
+  }
+  if (lower.includes('ambu') || lower.includes('medic') || lower.includes('trauma')) {
+    return 'ambulance';
+  }
+  if (lower.includes('fire') || lower.includes('tender')) {
+    return 'fireEngine';
+  }
+  if (lower.includes('police') || lower.includes('qrt')) {
+    return 'policeUnit';
+  }
+  if (lower.includes('drone') || lower.includes('recon')) {
+    return 'reconDrone';
+  }
+  return 'cargoTruck';
+}
+
 export function getUnitInfo(unitType: string): DispatchUnitInfo {
   if (unitType in DISPATCH_UNITS) {
     return DISPATCH_UNITS[unitType as DispatchUnitType];

@@ -68,6 +68,7 @@ import {
   STATE_BASELINES,
 } from '../data/districtProfiles';
 import { STATE_GEO_CONFIGS } from '../data/stateCoordinates';
+import { useTranslation } from '../context/LanguageContext';
 
 interface StateImpactEntry {
   name: string;
@@ -149,6 +150,7 @@ const QUICK_SCENARIOS = [
 ];
 
 export const PrioritizationDashboard: React.FC = () => {
+  const { t, currentLanguage } = useTranslation();
   const {
     disasterType,
     selectedSeverityId,

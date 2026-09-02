@@ -16,7 +16,6 @@ import {
   AlertTriangle,
   MapPin,
   Users,
-  RefreshCw,
   Download,
   BarChart3,
   Send,
@@ -36,6 +35,8 @@ import {
   StateResourceProfile,
   getNationalResourceSummary,
 } from '../data/stateResourceData';
+import { useDisasterSimulation } from '../context/DisasterSimulationContext';
+import { useTranslation } from '../context/LanguageContext';
 import {
   ResponsiveContainer,
   BarChart,
@@ -50,29 +51,19 @@ import {
   Cell,
 } from 'recharts';
 
-interface DispatchLog {
-  id: string;
-  sourceState: string;
-  targetState: string;
-  resourceKey: keyof StateResourceProfile['resources'];
-  quantity: number;
-  transitMode: string;
-  etaHours: number;
-  timestamp: string;
-  status: 'In Transit' | 'Arrived' | 'Preparing';
-}
-
 export const ResourceManagement: React.FC = () => {
-  // Local state for states inventory data to support live dispatches
-  const [statesData, setStatesData] = useState<StateResourceProfile[]>(STATE_RESOURCE_DATA);
+  const { t, currentLanguage } = useTranslation();
+  // Use global synchronized disaster simulation context for states data & dispatches
+  const { statesData, setStatesData, validateDispatch, interStateDispatch, dispatchLogs } = useDisasterSimulation();
+  
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRegion, setSelectedRegion] = useState<string>('All');
   const [selectedRisk, setSelectedRisk] = useState<string>('All');
   const [sortBy, setSortBy] = useState<string>('population');
   const [activeTab, setActiveTab] = useState<'inventory' | 'table' | 'analytics' | 'dispatch'>('inventory');
   
-  // Selected state for deep-dive drawer
-  const [selectedState, setSelectedState] = useState<StateResourceProfile | null>(null);
+  // Selected state for deep-dive drawer (stored as ID or object, resolved against live statesData)
+  const [selectedStateId, setSelectedStateId] = useState<string | null>(null);
 
   // Dispatch Simulator State
   const [dispatchSource, setDispatchSource] = useState<string>('maharashtra');
@@ -81,10 +72,24 @@ export const ResourceManagement: React.FC = () => {
   const [dispatchQty, setDispatchQty] = useState<number>(50);
   const [dispatchMode, setDispatchMode] = useState<string>('Green Road Corridor (SDRF Convoy)');
   const [dispatchSuccessMsg, setDispatchSuccessMsg] = useState<string | null>(null);
-  const [dispatchLogs, setDispatchLogs] = useState<DispatchLog[]>([]);
+
+  // Live selected state object derived dynamically from statesData
+  const liveSelectedState = useMemo(() => {
+    if (!selectedStateId) return null;
+    return statesData.find((s) => s.id === selectedStateId) || null;
+  }, [selectedStateId, statesData]);
 
   // Compute live national summaries
   const nationalSummary = useMemo(() => getNationalResourceSummary(statesData), [statesData]);
+
+  // Source state for dispatch tab
+  const currentSourceState = useMemo(() => {
+    return statesData.find((s) => s.id === dispatchSource) || statesData[0];
+  }, [dispatchSource, statesData]);
+
+  const currentAvailableInSource = useMemo(() => {
+    return currentSourceState?.resources[dispatchResource]?.inReserve ?? 0;
+  }, [currentSourceState, dispatchResource]);
 
   // Filtered and sorted states
   const filteredStates = useMemo(() => {
@@ -104,18 +109,18 @@ export const ResourceManagement: React.FC = () => {
       .sort((a, b) => {
         if (sortBy === 'population') return b.population - a.population;
         if (sortBy === 'name') return a.stateName.localeCompare(b.stateName);
-        if (sortBy === 'waterTankers') return b.resources.waterTankers.total - a.resources.waterTankers.total;
-        if (sortBy === 'rationPackets') return b.resources.rationPackets.total - a.resources.rationPackets.total;
-        if (sortBy === 'floatingClinics') return b.resources.floatingClinics.total - a.resources.floatingClinics.total;
-        if (sortBy === 'debrisMachinery') return b.resources.debrisMachinery.total - a.resources.debrisMachinery.total;
-        if (sortBy === 'emergencyGenerators') return b.resources.emergencyGenerators.total - a.resources.emergencyGenerators.total;
-        if (sortBy === 'tarpTentKits') return b.resources.tarpTentKits.total - a.resources.tarpTentKits.total;
-        if (sortBy === 'waterMotorPumps') return b.resources.waterMotorPumps.total - a.resources.waterMotorPumps.total;
+        if (sortBy === 'waterTankers') return b.resources.waterTankers.inReserve - a.resources.waterTankers.inReserve;
+        if (sortBy === 'rationPackets') return b.resources.rationPackets.inReserve - a.resources.rationPackets.inReserve;
+        if (sortBy === 'floatingClinics') return b.resources.floatingClinics.inReserve - a.resources.floatingClinics.inReserve;
+        if (sortBy === 'debrisMachinery') return b.resources.debrisMachinery.inReserve - a.resources.debrisMachinery.inReserve;
+        if (sortBy === 'emergencyGenerators') return b.resources.emergencyGenerators.inReserve - a.resources.emergencyGenerators.inReserve;
+        if (sortBy === 'tarpTentKits') return b.resources.tarpTentKits.inReserve - a.resources.tarpTentKits.inReserve;
+        if (sortBy === 'waterMotorPumps') return b.resources.waterMotorPumps.inReserve - a.resources.waterMotorPumps.inReserve;
         return 0;
       });
   }, [statesData, searchQuery, selectedRegion, selectedRisk, sortBy]);
 
-  // Handle Resource Dispatch execution
+  // Handle Resource Dispatch execution with validateDispatch utility & atomic subtraction
   const handleExecuteDispatch = (e: React.FormEvent) => {
     e.preventDefault();
     if (dispatchSource === dispatchTarget) {
@@ -130,66 +135,30 @@ export const ResourceManagement: React.FC = () => {
 
     const availableReserve = source.resources[dispatchResource].inReserve;
     if (dispatchQty > availableReserve) {
-      alert(`Cannot dispatch ${dispatchQty} units. Only ${availableReserve} units available in standby reserve in ${source.stateName}.`);
+      alert(`Cannot dispatch ${dispatchQty.toLocaleString()} units. Only ${availableReserve.toLocaleString()} units available in standby reserve in ${source.stateName}.`);
       return;
     }
 
-    // Apply live state changes
-    setStatesData((prev) =>
-      prev.map((s) => {
-        if (s.id === dispatchSource) {
-          return {
-            ...s,
-            resources: {
-              ...s.resources,
-              [dispatchResource]: {
-                ...s.resources[dispatchResource],
-                inReserve: s.resources[dispatchResource].inReserve - dispatchQty,
-                active: s.resources[dispatchResource].active + dispatchQty,
-              },
-            },
-          };
-        }
-        if (s.id === dispatchTarget) {
-          return {
-            ...s,
-            resources: {
-              ...s.resources,
-              [dispatchResource]: {
-                ...s.resources[dispatchResource],
-                total: s.resources[dispatchResource].total + dispatchQty,
-                active: s.resources[dispatchResource].active + dispatchQty,
-              },
-            },
-          };
-        }
-        return s;
-      })
+    const result = interStateDispatch(
+      dispatchSource,
+      dispatchTarget,
+      dispatchResource,
+      dispatchQty,
+      dispatchMode,
+      'HIGH'
     );
 
-    // Estimate ETA based on distance approximation
-    const etaHours = Math.floor(Math.random() * 18) + 8;
-
-    const newLog: DispatchLog = {
-      id: `DISP-${Math.floor(1000 + Math.random() * 9000)}`,
-      sourceState: source.stateName,
-      targetState: target.stateName,
-      resourceKey: dispatchResource,
-      quantity: dispatchQty,
-      transitMode: dispatchMode,
-      etaHours,
-      timestamp: 'Just now',
-      status: 'Preparing',
-    };
-
-    setDispatchLogs((prev) => [newLog, ...prev]);
-    setDispatchSuccessMsg(
-      `Successfully mobilized ${dispatchQty.toLocaleString()} ${RESOURCE_CATEGORIES[dispatchResource].shortName} from ${source.stateName} to ${target.stateName} via ${dispatchMode}. (ETA: ~${etaHours} hrs)`
-    );
-
-    setTimeout(() => {
-      setDispatchSuccessMsg(null);
-    }, 6000);
+    if (result.success) {
+      const remainingReserve = availableReserve - dispatchQty;
+      setDispatchSuccessMsg(
+        `Dispatched ${dispatchQty.toLocaleString()} ${RESOURCE_CATEGORIES[dispatchResource].name} from ${source.stateName} to ${target.stateName}. Standby inventory in ${source.stateName} immediately reduced to ${remainingReserve.toLocaleString()} units (Active: ${source.resources[dispatchResource].active + dispatchQty}).`
+      );
+      setTimeout(() => {
+        setDispatchSuccessMsg(null);
+      }, 7000);
+    } else {
+      alert(result.message);
+    }
   };
 
   // Export inventory to CSV
@@ -254,23 +223,23 @@ export const ResourceManagement: React.FC = () => {
     document.body.removeChild(link);
   };
 
-  // Helper to render icon by name
+  // Helper to render icon with National Tricolor palette
   const renderResourceIcon = (key: string, size = 16) => {
     switch (key) {
       case 'waterTankers':
-        return <Droplets size={size} className="text-cyan-400" />;
+        return <Droplets size={size} className="text-blue-400" />;
       case 'rationPackets':
-        return <Package size={size} className="text-amber-400" />;
+        return <Package size={size} className="text-[#FF9933]" />;
       case 'floatingClinics':
-        return <Ship size={size} className="text-pink-400" />;
+        return <Ship size={size} className="text-red-500" />;
       case 'debrisMachinery':
-        return <Truck size={size} className="text-yellow-400" />;
+        return <Truck size={size} className="text-amber-500" />;
       case 'emergencyGenerators':
-        return <Zap size={size} className="text-purple-400" />;
+        return <Zap size={size} className="text-slate-100" />;
       case 'tarpTentKits':
-        return <Tent size={size} className="text-emerald-400" />;
+        return <Tent size={size} className="text-[#138808]" />;
       case 'waterMotorPumps':
-        return <Gauge size={size} className="text-blue-400" />;
+        return <Gauge size={size} className="text-[#000080] dark:text-blue-300" />;
       default:
         return <Layers size={size} className="text-slate-400" />;
     }
@@ -320,7 +289,7 @@ export const ResourceManagement: React.FC = () => {
     return Object.keys(counts).map((k) => ({ name: k, value: counts[k] }));
   }, [statesData]);
 
-  const PIE_COLORS = ['#3b82f6', '#06b6d4', '#f59e0b', '#ef4444', '#a855f7'];
+  const PIE_COLORS = ['#FF9933', '#000080', '#138808', '#ef4444', '#e2e8f0'];
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300 pb-12">
@@ -330,16 +299,16 @@ export const ResourceManagement: React.FC = () => {
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 relative z-10">
           <div>
             <div className="flex items-center gap-2 mb-1.5">
-              <span className="px-2.5 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-[11px] font-bold tracking-wider uppercase font-mono flex items-center gap-1.5">
-                <Radio size={12} className="animate-pulse text-blue-400" /> National Disaster Logistics Grid
+              <span className="px-2.5 py-0.5 rounded-full bg-[#FF9933]/15 border border-[#FF9933]/30 text-[#FF9933] text-[11px] font-bold tracking-wider uppercase font-mono flex items-center gap-1.5">
+                <Radio size={12} className="animate-pulse text-[#FF9933]" /> National Disaster Logistics Grid
               </span>
-              <span className="text-xs text-slate-500 font-mono">NDMA · SDRF · State Relief Caches</span>
+              <span className="text-xs text-slate-400 font-mono">NDMA · SDRF · National Relief Caches</span>
             </div>
             <h1 className="text-xl sm:text-2xl font-black text-slate-100 tracking-tight">
               State-Wise Disaster Relief Resource Management
             </h1>
             <p className="text-xs sm:text-sm text-slate-400 mt-1 max-w-3xl leading-relaxed">
-              Standardized real-world distribution across 7 critical lifelines: <strong className="text-cyan-300">Clean Drinking Water Tankers</strong>, <strong className="text-amber-300">Dry Ration Packets</strong>, <strong className="text-pink-300">Floating Medical Clinics</strong>, <strong className="text-yellow-300">Heavy Debris Machinery</strong>, <strong className="text-purple-300">Emergency Generators</strong>, <strong className="text-emerald-300">Tarp/Tent Kits</strong>, and <strong className="text-blue-300">Water Motor Pumps</strong>.
+              Standardized real-world distribution across 7 critical lifelines: <strong className="text-blue-400">Clean Drinking Water Tankers</strong>, <strong className="text-[#FF9933]">Dry Ration Packets</strong>, <strong className="text-red-400">Floating Medical Clinics</strong>, <strong className="text-amber-400">Heavy Debris Machinery</strong>, <strong className="text-slate-200">Emergency Generators</strong>, <strong className="text-[#138808]">Tarp/Tent Kits</strong>, and <strong className="text-blue-400">Water Motor Pumps</strong>.
             </p>
           </div>
 
@@ -349,16 +318,8 @@ export const ResourceManagement: React.FC = () => {
               className="flex items-center gap-2 px-3.5 py-2 bg-[#111927] hover:bg-[#182438] text-slate-200 border border-[#1f2e47] rounded-xl text-xs font-semibold transition-all shadow-sm"
               title="Export complete inventory to CSV"
             >
-              <Download size={14} className="text-blue-400" />
+              <Download size={14} className="text-[#FF9933]" />
               <span>Export Manifest</span>
-            </button>
-            <button
-              onClick={() => setStatesData(STATE_RESOURCE_DATA)}
-              className="flex items-center gap-2 px-3 py-2 bg-[#111927] hover:bg-[#182438] text-slate-400 hover:text-slate-200 border border-[#1f2e47] rounded-xl text-xs transition-all"
-              title="Reset to default baseline inventory"
-            >
-              <RefreshCw size={13} />
-              <span>Reset Grid</span>
             </button>
           </div>
         </div>
@@ -586,7 +547,7 @@ export const ResourceManagement: React.FC = () => {
             {filteredStates.map((state) => (
               <div
                 key={state.id}
-                onClick={() => setSelectedState(state)}
+                onClick={() => setSelectedStateId(state.id)}
                 className="bg-[#090d16] border border-[#172338] hover:border-blue-500/40 hover:bg-[#0c1322] p-5 rounded-2xl shadow-xl cursor-pointer transition-all flex flex-col justify-between group relative overflow-hidden"
               >
                 <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/5 rounded-full blur-2xl group-hover:bg-blue-500/10 transition-colors pointer-events-none" />
@@ -635,79 +596,123 @@ export const ResourceManagement: React.FC = () => {
                     {state.distributionRationale}
                   </p>
 
-                  {/* 7 Resources Quick Grid */}
+                    {/* 7 Resources Quick Grid */}
                   <div className="grid grid-cols-2 gap-1.5 my-3 text-[11px]">
-                    <div className="bg-[#0b101c] p-2 rounded-lg border border-slate-800/60 flex items-center justify-between">
-                      <div className="flex items-center gap-1.5 text-slate-300">
-                        {renderResourceIcon('waterTankers', 13)}
-                        <span>Water Tankers</span>
+                    <div className="bg-[#0b101c] p-2 rounded-lg border border-slate-800/60 flex flex-col justify-between">
+                      <div className="flex items-center justify-between text-slate-300 mb-1">
+                        <div className="flex items-center gap-1.5">
+                          {renderResourceIcon('waterTankers', 13)}
+                          <span className="font-semibold text-xs">Water Tankers</span>
+                        </div>
+                        <span className="font-bold text-emerald-400 font-mono">{state.resources.waterTankers.inReserve.toLocaleString()}</span>
                       </div>
-                      <span className="font-bold text-white font-mono">{state.resources.waterTankers.total.toLocaleString()}</span>
+                      <div className="text-[10px] flex items-center justify-between font-mono text-slate-400 bg-[#070a12] px-1.5 py-0.5 rounded">
+                        <span className="text-[#138808] font-semibold">Available Standby</span>
+                        <span className="text-blue-300 font-semibold">{state.resources.waterTankers.active} actv / {state.resources.waterTankers.total} tot</span>
+                      </div>
                     </div>
 
-                    <div className="bg-[#0b101c] p-2 rounded-lg border border-slate-800/60 flex items-center justify-between">
-                      <div className="flex items-center gap-1.5 text-slate-300">
-                        {renderResourceIcon('rationPackets', 13)}
-                        <span>Ration Packets</span>
+                    <div className="bg-[#0b101c] p-2 rounded-lg border border-slate-800/60 flex flex-col justify-between">
+                      <div className="flex items-center justify-between text-slate-300 mb-1">
+                        <div className="flex items-center gap-1.5">
+                          {renderResourceIcon('rationPackets', 13)}
+                          <span className="font-semibold text-xs">Dry Rations</span>
+                        </div>
+                        <span className="font-bold text-emerald-400 font-mono">{formatNumber(state.resources.rationPackets.inReserve)}</span>
                       </div>
-                      <span className="font-bold text-amber-400 font-mono">{formatNumber(state.resources.rationPackets.total)}</span>
+                      <div className="text-[10px] flex items-center justify-between font-mono text-slate-400 bg-[#070a12] px-1.5 py-0.5 rounded">
+                        <span className="text-[#138808] font-semibold">Available Standby</span>
+                        <span className="text-[#FF9933] font-semibold">{formatNumber(state.resources.rationPackets.active)} actv / {formatNumber(state.resources.rationPackets.total)} tot</span>
+                      </div>
                     </div>
 
-                    <div className="bg-[#0b101c] p-2 rounded-lg border border-slate-800/60 flex items-center justify-between">
-                      <div className="flex items-center gap-1.5 text-slate-300">
-                        {renderResourceIcon('floatingClinics', 13)}
-                        <span>Boat Clinics</span>
+                    <div className="bg-[#0b101c] p-2 rounded-lg border border-slate-800/60 flex flex-col justify-between">
+                      <div className="flex items-center justify-between text-slate-300 mb-1">
+                        <div className="flex items-center gap-1.5">
+                          {renderResourceIcon('floatingClinics', 13)}
+                          <span className="font-semibold text-xs">Boat Clinics</span>
+                        </div>
+                        <span className={`font-bold font-mono ${state.resources.floatingClinics.inReserve > 0 ? 'text-emerald-400' : 'text-slate-500'}`}>
+                          {state.resources.floatingClinics.inReserve}
+                        </span>
                       </div>
-                      <span className={`font-bold font-mono ${state.resources.floatingClinics.total > 0 ? 'text-pink-400' : 'text-slate-500'}`}>
-                        {state.resources.floatingClinics.total} boats
-                      </span>
+                      <div className="text-[10px] flex items-center justify-between font-mono text-slate-400 bg-[#070a12] px-1.5 py-0.5 rounded">
+                        <span className="text-[#138808] font-semibold">Available Standby</span>
+                        <span className="text-red-400 font-semibold">{state.resources.floatingClinics.active} actv / {state.resources.floatingClinics.total} tot</span>
+                      </div>
                     </div>
 
-                    <div className="bg-[#0b101c] p-2 rounded-lg border border-slate-800/60 flex items-center justify-between">
-                      <div className="flex items-center gap-1.5 text-slate-300">
-                        {renderResourceIcon('debrisMachinery', 13)}
-                        <span>Heavy Mach.</span>
+                    <div className="bg-[#0b101c] p-2 rounded-lg border border-slate-800/60 flex flex-col justify-between">
+                      <div className="flex items-center justify-between text-slate-300 mb-1">
+                        <div className="flex items-center gap-1.5">
+                          {renderResourceIcon('debrisMachinery', 13)}
+                          <span className="font-semibold text-xs">Heavy Mach.</span>
+                        </div>
+                        <span className="font-bold text-emerald-400 font-mono">{state.resources.debrisMachinery.inReserve.toLocaleString()}</span>
                       </div>
-                      <span className="font-bold text-yellow-400 font-mono">{state.resources.debrisMachinery.total.toLocaleString()}</span>
+                      <div className="text-[10px] flex items-center justify-between font-mono text-slate-400 bg-[#070a12] px-1.5 py-0.5 rounded">
+                        <span className="text-[#138808] font-semibold">Available Standby</span>
+                        <span className="text-amber-400 font-semibold">{state.resources.debrisMachinery.active} actv / {state.resources.debrisMachinery.total} tot</span>
+                      </div>
                     </div>
 
-                    <div className="bg-[#0b101c] p-2 rounded-lg border border-slate-800/60 flex items-center justify-between">
-                      <div className="flex items-center gap-1.5 text-slate-300">
-                        {renderResourceIcon('emergencyGenerators', 13)}
-                        <span>Generators</span>
+                    <div className="bg-[#0b101c] p-2 rounded-lg border border-slate-800/60 flex flex-col justify-between">
+                      <div className="flex items-center justify-between text-slate-300 mb-1">
+                        <div className="flex items-center gap-1.5">
+                          {renderResourceIcon('emergencyGenerators', 13)}
+                          <span className="font-semibold text-xs">DG Gensets</span>
+                        </div>
+                        <span className="font-bold text-emerald-400 font-mono">{state.resources.emergencyGenerators.inReserve.toLocaleString()}</span>
                       </div>
-                      <span className="font-bold text-purple-400 font-mono">{state.resources.emergencyGenerators.total.toLocaleString()}</span>
+                      <div className="text-[10px] flex items-center justify-between font-mono text-slate-400 bg-[#070a12] px-1.5 py-0.5 rounded">
+                        <span className="text-[#138808] font-semibold">Available Standby</span>
+                        <span className="text-slate-200 font-semibold">{state.resources.emergencyGenerators.active} actv / {state.resources.emergencyGenerators.total} tot</span>
+                      </div>
                     </div>
 
-                    <div className="bg-[#0b101c] p-2 rounded-lg border border-slate-800/60 flex items-center justify-between">
-                      <div className="flex items-center gap-1.5 text-slate-300">
-                        {renderResourceIcon('tarpTentKits', 13)}
-                        <span>Tents / Tarps</span>
+                    <div className="bg-[#0b101c] p-2 rounded-lg border border-slate-800/60 flex flex-col justify-between">
+                      <div className="flex items-center justify-between text-slate-300 mb-1">
+                        <div className="flex items-center gap-1.5">
+                          {renderResourceIcon('tarpTentKits', 13)}
+                          <span className="font-semibold text-xs">Tents / Tarps</span>
+                        </div>
+                        <span className="font-bold text-emerald-400 font-mono">{formatNumber(state.resources.tarpTentKits.inReserve)}</span>
                       </div>
-                      <span className="font-bold text-emerald-400 font-mono">{formatNumber(state.resources.tarpTentKits.total)}</span>
+                      <div className="text-[10px] flex items-center justify-between font-mono text-slate-400 bg-[#070a12] px-1.5 py-0.5 rounded">
+                        <span className="text-[#138808] font-semibold">Available Standby</span>
+                        <span className="text-emerald-300 font-semibold">{formatNumber(state.resources.tarpTentKits.active)} actv / {formatNumber(state.resources.tarpTentKits.total)} tot</span>
+                      </div>
                     </div>
                   </div>
 
                   {/* Water Motor Pumps Highlight */}
-                  <div className="bg-blue-950/20 border border-blue-800/30 p-2 rounded-lg flex items-center justify-between text-xs">
+                  <div className="bg-blue-950/20 border border-blue-800/40 p-2.5 rounded-lg flex items-center justify-between text-xs">
                     <div className="flex items-center gap-1.5 text-blue-300 font-semibold">
                       {renderResourceIcon('waterMotorPumps', 14)}
-                      <span>Water Motor Pumps (Dewatering)</span>
+                      <span>Dewatering Motor Pumps</span>
                     </div>
-                    <span className="font-black text-blue-400 font-mono">{state.resources.waterMotorPumps.total.toLocaleString()} units</span>
+                    <div className="text-right font-mono">
+                      <span className="font-black text-emerald-400">{state.resources.waterMotorPumps.inReserve.toLocaleString()} Available</span>
+                      <span className="text-[10px] text-slate-400 block font-sans">
+                        <span className="text-blue-400 font-bold">{state.resources.waterMotorPumps.active} actv</span> · <span className="text-slate-400">{state.resources.waterMotorPumps.total} total</span>
+                      </span>
+                    </div>
                   </div>
                 </div>
 
                 {/* Footer Bar */}
                 <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
                   <div className="flex items-center gap-1.5">
-                    <ShieldCheck size={13} className="text-emerald-400" />
+                    <ShieldCheck size={13} className="text-[#138808]" />
                     <span>{state.sdrfBattalions} SDRF Battalions</span>
                   </div>
-                  <div className="flex items-center gap-1 text-blue-400 font-semibold group-hover:translate-x-0.5 transition-transform">
+                  <button
+                    onClick={() => setSelectedStateId(state.id)}
+                    className="flex items-center gap-1 text-[#FF9933] font-semibold hover:text-[#FFAA44] transition-colors"
+                  >
                     <span>Inspect Hub</span>
                     <ChevronRight size={13} />
-                  </div>
+                  </button>
                 </div>
               </div>
             ))}
@@ -723,7 +728,7 @@ export const ResourceManagement: React.FC = () => {
               <SlidersHorizontal size={16} className="text-blue-400" />
               <span>Full State Relief Stockpile Manifest ({filteredStates.length} Records)</span>
             </h3>
-            <span className="text-xs text-slate-400">Live operational &amp; standby reserve values</span>
+            <span className="text-xs text-slate-400">Showing Available Standby Reserve (res) &amp; Deployed (actv)</span>
           </div>
 
           <div className="overflow-x-auto">
@@ -732,13 +737,13 @@ export const ResourceManagement: React.FC = () => {
                 <tr>
                   <th className="px-4 py-3">State / UT</th>
                   <th className="px-3 py-3 text-center">Hazard</th>
-                  <th className="px-3 py-3 text-right">Water Tankers</th>
-                  <th className="px-3 py-3 text-right">Dry Rations</th>
-                  <th className="px-3 py-3 text-right">Floating Clinics</th>
-                  <th className="px-3 py-3 text-right">Heavy Machinery</th>
-                  <th className="px-3 py-3 text-right">DG Sets</th>
-                  <th className="px-3 py-3 text-right">Tents / Tarps</th>
-                  <th className="px-3 py-3 text-right">Dewatering Pumps</th>
+                  <th className="px-3 py-3 text-right">Water Tankers (Res/Tot)</th>
+                  <th className="px-3 py-3 text-right">Dry Rations (Res/Tot)</th>
+                  <th className="px-3 py-3 text-right">Floating Clinics (Res/Tot)</th>
+                  <th className="px-3 py-3 text-right">Heavy Mach. (Res/Tot)</th>
+                  <th className="px-3 py-3 text-right">DG Sets (Res/Tot)</th>
+                  <th className="px-3 py-3 text-right">Tents/Tarps (Res/Tot)</th>
+                  <th className="px-3 py-3 text-right">Pumps (Res/Tot)</th>
                   <th className="px-4 py-3 text-center">Action</th>
                 </tr>
               </thead>
@@ -764,61 +769,75 @@ export const ResourceManagement: React.FC = () => {
                     </td>
 
                     <td className="px-3 py-3 text-right font-mono">
-                      <span className="text-white font-bold">{st.resources.waterTankers.total.toLocaleString()}</span>
-                      <span className="text-[10px] text-slate-500 block font-sans">
-                        {st.resources.waterTankers.active} act
-                      </span>
+                      <span className="text-emerald-400 font-bold">{st.resources.waterTankers.inReserve.toLocaleString()}</span>
+                      <div className="text-[9px] flex items-center justify-end gap-1 font-mono text-slate-500">
+                        <span>tot: {st.resources.waterTankers.total}</span>
+                        <span>·</span>
+                        <span className="text-blue-400">{st.resources.waterTankers.active} actv</span>
+                      </div>
                     </td>
 
                     <td className="px-3 py-3 text-right font-mono">
-                      <span className="text-amber-400 font-bold">{formatNumber(st.resources.rationPackets.total)}</span>
-                      <span className="text-[10px] text-slate-500 block font-sans">
-                        {formatNumber(st.resources.rationPackets.active)} act
-                      </span>
+                      <span className="text-emerald-400 font-bold">{formatNumber(st.resources.rationPackets.inReserve)}</span>
+                      <div className="text-[9px] flex items-center justify-end gap-1 font-mono text-slate-500">
+                        <span>tot: {formatNumber(st.resources.rationPackets.total)}</span>
+                        <span>·</span>
+                        <span className="text-[#FF9933]">{formatNumber(st.resources.rationPackets.active)} actv</span>
+                      </div>
                     </td>
 
                     <td className="px-3 py-3 text-right font-mono">
-                      <span className={`font-bold ${st.resources.floatingClinics.total > 0 ? 'text-pink-400' : 'text-slate-600'}`}>
-                        {st.resources.floatingClinics.total}
+                      <span className={`font-bold ${st.resources.floatingClinics.inReserve > 0 ? 'text-emerald-400' : 'text-slate-600'}`}>
+                        {st.resources.floatingClinics.inReserve}
                       </span>
                       {st.resources.floatingClinics.total > 0 && (
-                        <span className="text-[10px] text-slate-500 block font-sans">
-                          {st.resources.floatingClinics.active} act
-                        </span>
+                        <div className="text-[9px] flex items-center justify-end gap-1 font-mono text-slate-500">
+                          <span>tot: {st.resources.floatingClinics.total}</span>
+                          <span>·</span>
+                          <span className="text-red-400">{st.resources.floatingClinics.active} actv</span>
+                        </div>
                       )}
                     </td>
 
                     <td className="px-3 py-3 text-right font-mono">
-                      <span className="text-yellow-400 font-bold">{st.resources.debrisMachinery.total.toLocaleString()}</span>
-                      <span className="text-[10px] text-slate-500 block font-sans">
-                        {st.resources.debrisMachinery.active} act
-                      </span>
+                      <span className="text-emerald-400 font-bold">{st.resources.debrisMachinery.inReserve.toLocaleString()}</span>
+                      <div className="text-[9px] flex items-center justify-end gap-1 font-mono text-slate-500">
+                        <span>tot: {st.resources.debrisMachinery.total}</span>
+                        <span>·</span>
+                        <span className="text-amber-400">{st.resources.debrisMachinery.active} actv</span>
+                      </div>
                     </td>
 
                     <td className="px-3 py-3 text-right font-mono">
-                      <span className="text-purple-400 font-bold">{st.resources.emergencyGenerators.total.toLocaleString()}</span>
-                      <span className="text-[10px] text-slate-500 block font-sans">
-                        {st.resources.emergencyGenerators.active} act
-                      </span>
+                      <span className="text-emerald-400 font-bold">{st.resources.emergencyGenerators.inReserve.toLocaleString()}</span>
+                      <div className="text-[9px] flex items-center justify-end gap-1 font-mono text-slate-500">
+                        <span>tot: {st.resources.emergencyGenerators.total}</span>
+                        <span>·</span>
+                        <span className="text-slate-300">{st.resources.emergencyGenerators.active} actv</span>
+                      </div>
                     </td>
 
                     <td className="px-3 py-3 text-right font-mono">
-                      <span className="text-emerald-400 font-bold">{formatNumber(st.resources.tarpTentKits.total)}</span>
-                      <span className="text-[10px] text-slate-500 block font-sans">
-                        {formatNumber(st.resources.tarpTentKits.active)} act
-                      </span>
+                      <span className="text-emerald-400 font-bold">{formatNumber(st.resources.tarpTentKits.inReserve)}</span>
+                      <div className="text-[9px] flex items-center justify-end gap-1 font-mono text-slate-500">
+                        <span>tot: {formatNumber(st.resources.tarpTentKits.total)}</span>
+                        <span>·</span>
+                        <span className="text-emerald-300">{formatNumber(st.resources.tarpTentKits.active)} actv</span>
+                      </div>
                     </td>
 
                     <td className="px-3 py-3 text-right font-mono">
-                      <span className="text-blue-400 font-bold">{st.resources.waterMotorPumps.total.toLocaleString()}</span>
-                      <span className="text-[10px] text-slate-500 block font-sans">
-                        {st.resources.waterMotorPumps.active} act
-                      </span>
+                      <span className="text-emerald-400 font-bold">{st.resources.waterMotorPumps.inReserve.toLocaleString()}</span>
+                      <div className="text-[9px] flex items-center justify-end gap-1 font-mono text-slate-500">
+                        <span>tot: {st.resources.waterMotorPumps.total}</span>
+                        <span>·</span>
+                        <span className="text-blue-400">{st.resources.waterMotorPumps.active} actv</span>
+                      </div>
                     </td>
 
                     <td className="px-4 py-3 text-center">
                       <button
-                        onClick={() => setSelectedState(st)}
+                        onClick={() => setSelectedStateId(st.id)}
                         className="px-2.5 py-1 bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 border border-blue-500/30 rounded-lg text-xs font-semibold transition-all"
                       >
                         Inspect
@@ -843,15 +862,25 @@ export const ResourceManagement: React.FC = () => {
                 <h3 className="font-bold text-sm text-slate-100">Inter-State Mutual Aid Dispatch</h3>
               </div>
               <p className="text-xs text-slate-400 mb-4 leading-relaxed">
-                Reallocate surge emergency equipment from surplus buffer states to active disaster ground zero.
+                Reallocate surge emergency equipment from surplus buffer states to active disaster ground zero. Standby inventory is subtracted immediately in real-time.
               </p>
+
+              {dispatchSuccessMsg && (
+                <div className="mb-4 p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-xs text-emerald-300 flex items-start gap-2 animate-in fade-in">
+                  <CheckCircle2 size={16} className="shrink-0 mt-0.5 text-emerald-400" />
+                  <span className="leading-relaxed">{dispatchSuccessMsg}</span>
+                </div>
+              )}
 
               <form onSubmit={handleExecuteDispatch} className="space-y-3.5">
                 {/* Source State */}
                 <div>
-                  <label className="text-[11px] font-semibold text-slate-400 block mb-1">
-                    Source State (Dispatching Reserve):
-                  </label>
+                  <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400 mb-1">
+                    <span>Source State (Dispatching Reserve):</span>
+                    <span className="text-emerald-400 font-mono">
+                      Res: {currentAvailableInSource.toLocaleString()} {RESOURCE_CATEGORIES[dispatchResource].unit}
+                    </span>
+                  </div>
                   <select
                     value={dispatchSource}
                     onChange={(e) => setDispatchSource(e.target.value)}
@@ -899,20 +928,37 @@ export const ResourceManagement: React.FC = () => {
                   </select>
                 </div>
 
-                {/* Quantity */}
+                {/* Quantity with SET MAX button */}
                 <div>
                   <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400 mb-1">
                     <span>Quantity to Mobilize:</span>
-                    <span className="text-blue-400 font-mono font-bold">{dispatchQty.toLocaleString()} units</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-blue-400 font-mono font-bold">{dispatchQty.toLocaleString()} units</span>
+                      <button
+                        type="button"
+                        onClick={() => setDispatchQty(Math.max(1, currentAvailableInSource))}
+                        className="px-2 py-0.5 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 text-[10px] font-bold rounded border border-blue-500/30 transition-colors"
+                      >
+                        SET MAX ({currentAvailableInSource.toLocaleString()})
+                      </button>
+                    </div>
                   </div>
                   <input
                     type="number"
                     min="1"
-                    max="100000"
+                    max={currentAvailableInSource || 1}
                     value={dispatchQty}
-                    onChange={(e) => setDispatchQty(Math.max(1, Number(e.target.value)))}
-                    className="w-full bg-[#070a12] border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
+                    onChange={(e) => {
+                      const val = Number(e.target.value);
+                      setDispatchQty(Math.max(1, Math.min(val, currentAvailableInSource || 1)));
+                    }}
+                    className="w-full bg-[#070a12] border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono"
                   />
+                  {dispatchQty > currentAvailableInSource && (
+                    <span className="text-[10px] text-red-400 mt-1 block">
+                      Quantity exceeds available standby stock ({currentAvailableInSource.toLocaleString()}).
+                    </span>
+                  )}
                 </div>
 
                 {/* Transit Route */}
@@ -932,7 +978,12 @@ export const ResourceManagement: React.FC = () => {
 
                 <button
                   type="submit"
-                  className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2 mt-4"
+                  disabled={currentAvailableInSource <= 0}
+                  className={`w-full py-2.5 rounded-xl text-xs font-bold transition-all shadow-lg flex items-center justify-center gap-2 mt-4 ${
+                    currentAvailableInSource <= 0
+                      ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                      : 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-500/20 cursor-pointer'
+                  }`}
                 >
                   <Send size={14} />
                   <span>Authorize &amp; Mobilize Convoy</span>
@@ -1152,12 +1203,12 @@ export const ResourceManagement: React.FC = () => {
       )}
 
       {/* STATE DRILLDOWN DRAWER / MODAL */}
-      {selectedState && (
+      {liveSelectedState && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-[#090d16] border border-[#172338] rounded-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto shadow-2xl p-6 relative scrollbar-thin scrollbar-thumb-slate-800">
             {/* Close Button */}
             <button
-              onClick={() => setSelectedState(null)}
+              onClick={() => setSelectedStateId(null)}
               className="absolute top-5 right-5 p-1.5 rounded-lg bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700 transition-colors"
             >
               <X size={16} />
@@ -1166,21 +1217,21 @@ export const ResourceManagement: React.FC = () => {
             {/* Modal Header */}
             <div className="flex items-start gap-4 mb-6 pb-4 border-b border-slate-800">
               <div className="p-3 rounded-2xl bg-blue-500/10 border border-blue-500/20 text-blue-400 font-bold text-xl font-mono">
-                {selectedState.stateCode}
+                {liveSelectedState.stateCode}
               </div>
               <div>
                 <div className="flex items-center gap-3">
-                  <h2 className="text-xl font-black text-white">{selectedState.stateName}</h2>
+                  <h2 className="text-xl font-black text-white">{liveSelectedState.stateName}</h2>
                   <span className="text-xs px-2.5 py-0.5 rounded-full bg-blue-500/20 text-blue-400 font-semibold border border-blue-500/30">
-                    {selectedState.primaryDisasterRisk}
+                    {liveSelectedState.primaryDisasterRisk}
                   </span>
                 </div>
                 <p className="text-xs text-slate-400 mt-1 flex items-center gap-3">
-                  <span>Capital: <strong className="text-slate-200">{selectedState.capital}</strong></span>
+                  <span>Capital: <strong className="text-slate-200">{liveSelectedState.capital}</strong></span>
                   <span>·</span>
-                  <span>Population: <strong className="text-slate-200">{selectedState.population.toLocaleString()}</strong></span>
+                  <span>Population: <strong className="text-slate-200">{liveSelectedState.population.toLocaleString()}</strong></span>
                   <span>·</span>
-                  <span>Region: <strong className="text-slate-200">{selectedState.region}</strong></span>
+                  <span>Region: <strong className="text-slate-200">{liveSelectedState.region}</strong></span>
                 </p>
               </div>
             </div>
@@ -1191,7 +1242,7 @@ export const ResourceManagement: React.FC = () => {
                 <Info size={14} />
                 <span>Geographic &amp; Vulnerability Allocation Rationale</span>
               </div>
-              <p className="text-xs text-slate-300 leading-relaxed">{selectedState.distributionRationale}</p>
+              <p className="text-xs text-slate-300 leading-relaxed">{liveSelectedState.distributionRationale}</p>
             </div>
 
             {/* 7 Lifeline Resources Comprehensive Breakdown */}
@@ -1203,7 +1254,7 @@ export const ResourceManagement: React.FC = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {(Object.keys(RESOURCE_CATEGORIES) as (keyof StateResourceProfile['resources'])[]).map((key) => {
                   const cat = RESOURCE_CATEGORIES[key];
-                  const res = selectedState.resources[key];
+                  const res = liveSelectedState.resources[key];
                   const activePercent = Math.round((res.active / (res.total || 1)) * 100);
 
                   return (
@@ -1213,7 +1264,7 @@ export const ResourceManagement: React.FC = () => {
                           {renderResourceIcon(key, 16)}
                           <span className="text-xs font-bold text-white">{cat.name}</span>
                         </div>
-                        <span className="text-xs font-mono font-black text-white">{res.total.toLocaleString()}</span>
+                        <span className="text-xs font-mono font-black text-emerald-400">{res.inReserve.toLocaleString()} Available</span>
                       </div>
 
                       <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden flex">
@@ -1235,9 +1286,9 @@ export const ResourceManagement: React.FC = () => {
                       </div>
 
                       <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
-                        <span className="text-emerald-400">Standby: {res.inReserve.toLocaleString()}</span>
+                        <span className="text-emerald-400 font-bold">Standby: {res.inReserve.toLocaleString()}</span>
                         <span className="text-blue-400">Deployed: {res.active.toLocaleString()}</span>
-                        <span className="text-amber-400">Maint: {res.inMaintenance}</span>
+                        <span className="text-slate-400">Total: {res.total.toLocaleString()}</span>
                       </div>
 
                       <p className="text-[10px] text-slate-500 italic pt-1 border-t border-slate-800/60">
@@ -1257,18 +1308,18 @@ export const ResourceManagement: React.FC = () => {
                   <span>Key Storage Depots &amp; SDRF Logistics Bases</span>
                 </h3>
                 <span className="text-[11px] font-mono text-emerald-400 font-bold">
-                  {selectedState.sdrfBattalions} SDRF Battalions
+                  {liveSelectedState.sdrfBattalions} SDRF Battalions
                 </span>
               </div>
 
               <div className="space-y-2">
                 <div className="p-2.5 bg-[#090d16] border border-slate-800/80 rounded-lg text-xs">
                   <span className="text-blue-400 font-bold block">Primary Central Depot:</span>
-                  <span className="text-slate-300">{selectedState.primaryDepotLocation}</span>
+                  <span className="text-slate-300">{liveSelectedState.primaryDepotLocation}</span>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
-                  {selectedState.depots.map((dep, idx) => (
+                  {liveSelectedState.depots.map((dep, idx) => (
                     <div key={idx} className="p-2.5 bg-[#090d16] border border-slate-800/80 rounded-lg text-xs">
                       <p className="font-bold text-white">{dep.name}</p>
                       <p className="text-[11px] text-slate-400">District: {dep.district}</p>
@@ -1283,17 +1334,17 @@ export const ResourceManagement: React.FC = () => {
             <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-800">
               <button
                 onClick={() => {
-                  setDispatchSource(selectedState.id);
+                  setDispatchSource(liveSelectedState.id);
                   setActiveTab('dispatch');
-                  setSelectedState(null);
+                  setSelectedStateId(null);
                 }}
                 className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-blue-500/20"
               >
                 <Send size={14} />
-                <span>Initiate Dispatch from {selectedState.stateName}</span>
+                <span>Initiate Dispatch from {liveSelectedState.stateName}</span>
               </button>
               <button
-                onClick={() => setSelectedState(null)}
+                onClick={() => setSelectedStateId(null)}
                 className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition-colors"
               >
                 Close

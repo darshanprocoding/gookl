@@ -21,7 +21,7 @@ export const RESOURCE_CATEGORIES: Record<string, ResourceCategory> = {
     unit: 'Tanker Units',
     iconName: 'Droplets',
     description: 'Heavy mobile potable water supply tankers (6,000L - 12,000L capacity) with filtration & chlorination kits.',
-    color: '#06b6d4',
+    color: '#1D4ED8', // Dharmachakra Blue / National Blue
     standardCapacityPerUnit: '10,000 Liters / unit',
   },
   rationPackets: {
@@ -31,7 +31,7 @@ export const RESOURCE_CATEGORIES: Record<string, ResourceCategory> = {
     unit: 'Family Food Kits',
     iconName: 'Package',
     description: 'Fortified emergency food rations (rice, pulses, oil, jaggery, biscuits, water purifying tablets) feeding 4 persons for 7 days.',
-    color: '#f59e0b',
+    color: '#FF9933', // Kesari / Indian Saffron
     standardCapacityPerUnit: '1 Kit (Family of 4 for 7 days)',
   },
   floatingClinics: {
@@ -41,7 +41,7 @@ export const RESOURCE_CATEGORIES: Record<string, ResourceCategory> = {
     unit: 'Motorized Boat Clinics',
     iconName: 'Ship',
     description: 'Shallow-draft motorized ambulance boats equipped with emergency triage, pharmacy, vaccine solar refrigerators, and doctor cabins.',
-    color: '#ec4899',
+    color: '#DC2626', // National Red / Emergency Life-Saving
     standardCapacityPerUnit: '1 Boat Clinic (50-80 patients/day)',
   },
   debrisMachinery: {
@@ -51,7 +51,7 @@ export const RESOURCE_CATEGORIES: Record<string, ResourceCategory> = {
     unit: 'Machines (JCB/Excavator)',
     iconName: 'Truck',
     description: 'Hydraulic excavators, track bulldozers, JCB backhoes, rock breakers, and 50T recovery cranes for landslide and cyclone debris clearance.',
-    color: '#eab308',
+    color: '#D97706', // Saffron-Gold / Indian Ochre
     standardCapacityPerUnit: 'Heavy Equipment Unit',
   },
   emergencyGenerators: {
@@ -61,7 +61,7 @@ export const RESOURCE_CATEGORIES: Record<string, ResourceCategory> = {
     unit: 'Mobile DG Sets',
     iconName: 'Zap',
     description: 'Silent trailer-mounted diesel generator sets (25 kVA - 250 kVA) providing emergency power to hospitals, pumping stations, and shelters.',
-    color: '#a855f7',
+    color: '#F8FAFC', // Shwet White / Silver Grid
     standardCapacityPerUnit: '62.5 - 250 kVA Silent DG',
   },
   tarpTentKits: {
@@ -71,7 +71,7 @@ export const RESOURCE_CATEGORIES: Record<string, ResourceCategory> = {
     unit: 'Shelter Kits',
     iconName: 'Tent',
     description: 'UV-resistant 200+ GSM waterproof HDPE tarpaulins, family emergency dome tents, and modular relief camp shelter units.',
-    color: '#10b981',
+    color: '#138808', // India Green / Hara
     standardCapacityPerUnit: '1 Kit (Dome Tent + 2 Heavy Tarps)',
   },
   waterMotorPumps: {
@@ -81,7 +81,7 @@ export const RESOURCE_CATEGORIES: Record<string, ResourceCategory> = {
     unit: 'Pump Units',
     iconName: 'Gauge',
     description: 'High-discharge 5 HP - 50 HP sludge and trash dewatering diesel pumps (50,000 - 300,000 L/hr) for urban underpasses and submerged colonies.',
-    color: '#3b82f6',
+    color: '#000080', // Navy Blue / Dharmachakra Navy
     standardCapacityPerUnit: '150,000 L/hr Trash Pump',
   },
 };
@@ -124,7 +124,7 @@ export const STATE_RESOURCE_DATA: StateResourceProfile[] = [
     primaryDepotLocation: 'SDRF Central Warehouse, Changsari, Guwahati',
     distributionRationale: 'Highest allocation of Floating Medical Clinics (38 boats) in India to navigate 15+ isolated Brahmaputra river island chars (Majuli, Dhubri, Barpeta). Heavy allocation of Dewatering Pumps (2,100) and Tarp/Tent kits (380k) for annual embankment breach relief.',
     resources: {
-      waterTankers: { total: 850, active: 480, inReserve: 320, inMaintenance: 50 },
+      waterTankers: { total: 2850, active: 480, inReserve: 2320, inMaintenance: 50 },
       rationPackets: { total: 680000, active: 180000, inReserve: 490000, inMaintenance: 10000 },
       floatingClinics: { total: 38, active: 29, inReserve: 7, inMaintenance: 2 },
       debrisMachinery: { total: 540, active: 290, inReserve: 210, inMaintenance: 40 },
@@ -151,7 +151,7 @@ export const STATE_RESOURCE_DATA: StateResourceProfile[] = [
     primaryDepotLocation: 'BSDMA Central Depot, Bihta (Patna)',
     distributionRationale: 'Largest national stockpile of Dry Ration Packets (920k) and Tarp/Tent Kits (420k) due to 28 flood-prone transboundary river districts (Kosi, Gandak, Bagmati, Mahananda). Operates 26 motorized river ambulance clinics across riverine diara belts.',
     resources: {
-      waterTankers: { total: 1250, active: 620, inReserve: 560, inMaintenance: 70 },
+      waterTankers: { total: 3850, active: 620, inReserve: 3160, inMaintenance: 70 },
       rationPackets: { total: 920000, active: 240000, inReserve: 660000, inMaintenance: 20000 },
       floatingClinics: { total: 26, active: 18, inReserve: 6, inMaintenance: 2 },
       debrisMachinery: { total: 760, active: 390, inReserve: 320, inMaintenance: 50 },
@@ -178,7 +178,7 @@ export const STATE_RESOURCE_DATA: StateResourceProfile[] = [
     primaryDepotLocation: 'OSDMA Disaster Management Centre, Jagatsinghpur / Bhubaneswar',
     distributionRationale: 'Pioneer in Cyclone Resilience (ODRAF). Massive Emergency Generator fleet (2,400 DG sets) pre-positioned across 800+ Multi-Purpose Cyclone Shelters. Operates 18 Chilika and Mahanadi delta floating medical craft and 2,050 dewatering trash pumps.',
     resources: {
-      waterTankers: { total: 1100, active: 450, inReserve: 590, inMaintenance: 60 },
+      waterTankers: { total: 3500, active: 450, inReserve: 2990, inMaintenance: 60 },
       rationPackets: { total: 650000, active: 120000, inReserve: 515000, inMaintenance: 15000 },
       floatingClinics: { total: 18, active: 14, inReserve: 3, inMaintenance: 1 },
       debrisMachinery: { total: 820, active: 410, inReserve: 360, inMaintenance: 50 },
@@ -205,7 +205,7 @@ export const STATE_RESOURCE_DATA: StateResourceProfile[] = [
     primaryDepotLocation: 'Nabanna Disaster Control Hub, Howrah / South 24 Parganas',
     distributionRationale: 'Largest concentration of Sundarbans Delta Boat Clinics (32 floating clinics) serving remote mangrove islands (Gosaba, Basanti, Sandeshkhali). Huge fleet of 2,900 Water Motor Pumps for Kolkata Metropolitan drainage and coastal embankment breaches.',
     resources: {
-      waterTankers: { total: 1400, active: 620, inReserve: 710, inMaintenance: 70 },
+      waterTankers: { total: 3600, active: 620, inReserve: 2910, inMaintenance: 70 },
       rationPackets: { total: 780000, active: 190000, inReserve: 575000, inMaintenance: 15000 },
       floatingClinics: { total: 32, active: 25, inReserve: 5, inMaintenance: 2 },
       debrisMachinery: { total: 890, active: 470, inReserve: 370, inMaintenance: 50 },
@@ -230,9 +230,9 @@ export const STATE_RESOURCE_DATA: StateResourceProfile[] = [
     primaryDisasterRisk: 'Multi-Hazard',
     sdrfBattalions: 9,
     primaryDepotLocation: 'State Emergency Operations Centre (SEOC), Mantralaya, Mumbai / Pune',
-    distributionRationale: 'Largest national fleet of Clean Drinking Water Tankers (3,450 units) catering to chronic Marathwada/Vidarbha droughts alongside massive Mumbai/Thane Urban Flood Dewatering Pump fleet (3,800 pumps) and Heavy Machinery (1,420 units).',
+    distributionRationale: 'Largest national fleet of Clean Drinking Water Tankers (5,450 units) catering to chronic Marathwada/Vidarbha droughts alongside massive Mumbai/Thane Urban Flood Dewatering Pump fleet (3,800 pumps) and Heavy Machinery (1,420 units).',
     resources: {
-      waterTankers: { total: 3450, active: 1680, inReserve: 1610, inMaintenance: 160 },
+      waterTankers: { total: 5450, active: 1680, inReserve: 3610, inMaintenance: 160 },
       rationPackets: { total: 740000, active: 150000, inReserve: 570000, inMaintenance: 20000 },
       floatingClinics: { total: 8, active: 6, inReserve: 2, inMaintenance: 0 },
       debrisMachinery: { total: 1420, active: 780, inReserve: 570, inMaintenance: 70 },
@@ -258,9 +258,9 @@ export const STATE_RESOURCE_DATA: StateResourceProfile[] = [
     primaryDisasterRisk: 'Cyclone & Storm Surge',
     sdrfBattalions: 6,
     primaryDepotLocation: 'TNDMA State Relief Warehouse, Ezhilagam, Chepauk, Chennai',
-    distributionRationale: 'Extensive Coastal Flood & Cyclone Fleet. 3,200 Dewatering Trash Pumps (Greater Chennai Corporation & Delta), 2,400 Water Tankers (Chennai Metrowater drought/surge grid), and 2,250 Emergency DG sets supporting critical hospital power infrastructure.',
+    distributionRationale: 'Extensive Coastal Flood & Cyclone Fleet. 3,200 Dewatering Trash Pumps (Greater Chennai Corporation & Delta), 4,200 Water Tankers (Chennai Metrowater drought/surge grid), and 2,250 Emergency DG sets supporting critical hospital power infrastructure.',
     resources: {
-      waterTankers: { total: 2400, active: 1120, inReserve: 1170, inMaintenance: 110 },
+      waterTankers: { total: 4200, active: 1120, inReserve: 2970, inMaintenance: 110 },
       rationPackets: { total: 590000, active: 130000, inReserve: 445000, inMaintenance: 15000 },
       floatingClinics: { total: 12, active: 9, inReserve: 2, inMaintenance: 1 },
       debrisMachinery: { total: 1180, active: 640, inReserve: 480, inMaintenance: 60 },
@@ -287,7 +287,7 @@ export const STATE_RESOURCE_DATA: StateResourceProfile[] = [
     primaryDepotLocation: 'KSDMA Emergency Operations Centre, Observatory Hills, Trivandrum',
     distributionRationale: 'High concentration of Kuttanad & Backwater Floating Dispensaries (22 boat clinics) and High-Discharge Polder Dewatering Pumps (2,400 units). Specialized mountain debris clearing gear (580 units) for Wayanad/Idukki high-slope landslide corridors.',
     resources: {
-      waterTankers: { total: 750, active: 310, inReserve: 400, inMaintenance: 40 },
+      waterTankers: { total: 2650, active: 310, inReserve: 2300, inMaintenance: 40 },
       rationPackets: { total: 420000, active: 85000, inReserve: 325000, inMaintenance: 10000 },
       floatingClinics: { total: 22, active: 17, inReserve: 4, inMaintenance: 1 },
       debrisMachinery: { total: 580, active: 330, inReserve: 220, inMaintenance: 30 },
@@ -312,9 +312,9 @@ export const STATE_RESOURCE_DATA: StateResourceProfile[] = [
     primaryDisasterRisk: 'Cyclone & Storm Surge',
     sdrfBattalions: 6,
     primaryDepotLocation: 'GSDMA Disaster Warehouse, Koba Circle, Gandhinagar',
-    distributionRationale: 'Extensive Arabian Sea coastal storm-surge readiness. 1,700 Clean Water Tankers (Saurashtra & Kutch drought regions), 2,200 Dewatering Pumps (Surat & Ahmedabad flood grid), and 14 Estuarine/Gulf ambulance boats.',
+    distributionRationale: 'Extensive Arabian Sea coastal storm-surge readiness. 3,900 Clean Water Tankers (Saurashtra & Kutch drought regions), 2,200 Dewatering Pumps (Surat & Ahmedabad flood grid), and 14 Estuarine/Gulf ambulance boats.',
     resources: {
-      waterTankers: { total: 1700, active: 780, inReserve: 840, inMaintenance: 80 },
+      waterTankers: { total: 3900, active: 780, inReserve: 3040, inMaintenance: 80 },
       rationPackets: { total: 480000, active: 95000, inReserve: 375000, inMaintenance: 10000 },
       floatingClinics: { total: 14, active: 10, inReserve: 3, inMaintenance: 1 },
       debrisMachinery: { total: 1220, active: 680, inReserve: 480, inMaintenance: 60 },
@@ -339,9 +339,9 @@ export const STATE_RESOURCE_DATA: StateResourceProfile[] = [
     primaryDisasterRisk: 'Flood & Inundation',
     sdrfBattalions: 10,
     primaryDepotLocation: 'UPSDMA State Headquarters, Sarojini Nagar, Lucknow',
-    distributionRationale: 'Largest overall population baseline in India. Massive inventory of 1,650 Heavy Machinery units, 850k Dry Ration Packets, 2,200 Water Tankers, and 2,500 Dewatering Pumps distributed across 75 districts along Ganga-Yamuna-Ghaghra basins.',
+    distributionRationale: 'Largest overall population baseline in India. Massive inventory of 1,650 Heavy Machinery units, 850k Dry Ration Packets, 5,200 Water Tankers, and 2,500 Dewatering Pumps distributed across 75 districts along Ganga-Yamuna-Ghaghra basins.',
     resources: {
-      waterTankers: { total: 2200, active: 980, inReserve: 1110, inMaintenance: 110 },
+      waterTankers: { total: 5200, active: 980, inReserve: 4110, inMaintenance: 110 },
       rationPackets: { total: 850000, active: 180000, inReserve: 650000, inMaintenance: 20000 },
       floatingClinics: { total: 10, active: 7, inReserve: 2, inMaintenance: 1 },
       debrisMachinery: { total: 1650, active: 890, inReserve: 680, inMaintenance: 80 },
@@ -368,7 +368,7 @@ export const STATE_RESOURCE_DATA: StateResourceProfile[] = [
     primaryDepotLocation: 'APSDMA State Emergency Center, Kunchanapalli, Guntur / Vijayawada',
     distributionRationale: 'Longest mainland coastline on Bay of Bengal (974 km). 16 River Island/Delta Floating Clinics across Godavari & Krishna deltas (Konaseema, Kolleru lake). 1,700 Emergency Gensets and 1,900 High-Capacity Water Dewatering Pumps.',
     resources: {
-      waterTankers: { total: 1500, active: 680, inReserve: 740, inMaintenance: 80 },
+      waterTankers: { total: 3800, active: 680, inReserve: 3040, inMaintenance: 80 },
       rationPackets: { total: 510000, active: 110000, inReserve: 385000, inMaintenance: 15000 },
       floatingClinics: { total: 16, active: 12, inReserve: 3, inMaintenance: 1 },
       debrisMachinery: { total: 780, active: 410, inReserve: 330, inMaintenance: 40 },
@@ -393,9 +393,9 @@ export const STATE_RESOURCE_DATA: StateResourceProfile[] = [
     primaryDisasterRisk: 'Drought & Heatwave',
     sdrfBattalions: 6,
     primaryDepotLocation: 'SDRF 1st Battalion Depot, Gadota, Jaipur',
-    distributionRationale: 'Largest geographic area in India with extensive Thar desert terrain. Second highest Drinking Water Tanker fleet (2,800 tankers) for acute summer drought management. Zero regular floating clinics due to arid landlocked geography.',
+    distributionRationale: 'Largest geographic area in India with extensive Thar desert terrain. Second highest Drinking Water Tanker fleet (5,200 tankers) for acute summer drought management. Zero regular floating clinics due to arid landlocked geography.',
     resources: {
-      waterTankers: { total: 2800, active: 1450, inReserve: 1220, inMaintenance: 130 },
+      waterTankers: { total: 5200, active: 1450, inReserve: 3620, inMaintenance: 130 },
       rationPackets: { total: 380000, active: 75000, inReserve: 295000, inMaintenance: 10000 },
       floatingClinics: { total: 1, active: 0, inReserve: 1, inMaintenance: 0 },
       debrisMachinery: { total: 910, active: 480, inReserve: 380, inMaintenance: 50 },
@@ -420,9 +420,9 @@ export const STATE_RESOURCE_DATA: StateResourceProfile[] = [
     primaryDisasterRisk: 'Multi-Hazard',
     sdrfBattalions: 5,
     primaryDepotLocation: 'KSDMA State Operations Center, Revenue Complex, Bengaluru',
-    distributionRationale: 'Balanced multi-hazard inventory. 1,850 Drinking Water Tankers (Hyderabad-Karnataka drought belts), 1,750 Dewatering Pumps (BBMP Bengaluru Stormwater drainage & coastal Mangaluru), and 1,050 Heavy Debris Machines.',
+    distributionRationale: 'Balanced multi-hazard inventory. 4,150 Drinking Water Tankers (Hyderabad-Karnataka drought belts), 1,750 Dewatering Pumps (BBMP Bengaluru Stormwater drainage & coastal Mangaluru), and 1,050 Heavy Debris Machines.',
     resources: {
-      waterTankers: { total: 1850, active: 890, inReserve: 870, inMaintenance: 90 },
+      waterTankers: { total: 4150, active: 890, inReserve: 3170, inMaintenance: 90 },
       rationPackets: { total: 410000, active: 80000, inReserve: 320000, inMaintenance: 10000 },
       floatingClinics: { total: 6, active: 4, inReserve: 2, inMaintenance: 0 },
       debrisMachinery: { total: 1050, active: 560, inReserve: 440, inMaintenance: 50 },
@@ -447,9 +447,9 @@ export const STATE_RESOURCE_DATA: StateResourceProfile[] = [
     primaryDisasterRisk: 'Multi-Hazard',
     sdrfBattalions: 6,
     primaryDepotLocation: 'Home Guards & SDERF Central HQ, Mangalwara, Bhopal',
-    distributionRationale: 'Central logistics crossroad for national mutual-aid transit. 1,600 Water Tankers (Bundelkhand drought mitigation), 980 Heavy Debris Clearing units, and 1,350 Emergency DG sets for Narmada/Chambal basin emergency operations.',
+    distributionRationale: 'Central logistics crossroad for national mutual-aid transit. 4,200 Water Tankers (Bundelkhand drought mitigation), 980 Heavy Debris Clearing units, and 1,350 Emergency DG sets for Narmada/Chambal basin emergency operations.',
     resources: {
-      waterTankers: { total: 1600, active: 720, inReserve: 800, inMaintenance: 80 },
+      waterTankers: { total: 4200, active: 720, inReserve: 3400, inMaintenance: 80 },
       rationPackets: { total: 450000, active: 90000, inReserve: 350000, inMaintenance: 10000 },
       floatingClinics: { total: 3, active: 2, inReserve: 1, inMaintenance: 0 },
       debrisMachinery: { total: 980, active: 510, inReserve: 420, inMaintenance: 50 },
@@ -476,7 +476,7 @@ export const STATE_RESOURCE_DATA: StateResourceProfile[] = [
     primaryDepotLocation: 'SDRF Uttarakhand Battalion HQ, Jolly Grant, Dehradun',
     distributionRationale: 'Highest density per capita of Heavy Debris-Clearing Machinery (720 units) and rock breakers for NH Char Dham landslide clearance and cloudburst mitigation. Zero floating clinics; high insulated tent cache (160k kits).',
     resources: {
-      waterTankers: { total: 320, active: 140, inReserve: 160, inMaintenance: 20 },
+      waterTankers: { total: 2420, active: 140, inReserve: 2260, inMaintenance: 20 },
       rationPackets: { total: 210000, active: 45000, inReserve: 160000, inMaintenance: 5000 },
       floatingClinics: { total: 0, active: 0, inReserve: 0, inMaintenance: 0 },
       debrisMachinery: { total: 720, active: 460, inReserve: 230, inMaintenance: 30 },
@@ -503,7 +503,7 @@ export const STATE_RESOURCE_DATA: StateResourceProfile[] = [
     primaryDepotLocation: 'HPSDMA Central Depot, Junga, Shimla',
     distributionRationale: 'Specialized Himalayan flash-flood & landslide profile. 640 Heavy Excavators/Loaders, 130k Insulated Winter-Grade Tent Kits, and 520 DG sets for severed valley telecommunications during winter blizzards and monsoon cloudbursts.',
     resources: {
-      waterTankers: { total: 260, active: 110, inReserve: 130, inMaintenance: 20 },
+      waterTankers: { total: 2360, active: 110, inReserve: 2230, inMaintenance: 20 },
       rationPackets: { total: 180000, active: 35000, inReserve: 140000, inMaintenance: 5000 },
       floatingClinics: { total: 0, active: 0, inReserve: 0, inMaintenance: 0 },
       debrisMachinery: { total: 640, active: 390, inReserve: 220, inMaintenance: 30 },
@@ -530,7 +530,7 @@ export const STATE_RESOURCE_DATA: StateResourceProfile[] = [
     primaryDepotLocation: 'JK-SDMA Regional Operations Hub, Bemina, Srinagar / Gandhi Nagar, Jammu',
     distributionRationale: 'Sub-zero winter insulated emergency shelter kits (175k kits), 6 Dal/Wular Lake medical shikaras/boat ambulances, 620 Heavy Mountain Highway Clearence Machineries for NH-44 avalanche clearance.',
     resources: {
-      waterTankers: { total: 420, active: 180, inReserve: 220, inMaintenance: 20 },
+      waterTankers: { total: 2520, active: 180, inReserve: 2320, inMaintenance: 20 },
       rationPackets: { total: 220000, active: 45000, inReserve: 170000, inMaintenance: 5000 },
       floatingClinics: { total: 6, active: 5, inReserve: 1, inMaintenance: 0 },
       debrisMachinery: { total: 620, active: 360, inReserve: 230, inMaintenance: 30 },
@@ -555,9 +555,9 @@ export const STATE_RESOURCE_DATA: StateResourceProfile[] = [
     primaryDisasterRisk: 'Drought & Heatwave',
     sdrfBattalions: 3,
     primaryDepotLocation: 'DDMA Central Logistics Hub, Sham Nath Marg / Kashmere Gate',
-    distributionRationale: 'Extreme Urban Density profile. 1,450 Dewatering Pumps for Yamuna floodplain overflow & underpass clearance (Minto bridge, Pragati Maidan), 850 DJB Water Tankers, and 880 High-Capacity Emergency Gensets.',
+    distributionRationale: 'Extreme Urban Density profile. 1,450 Dewatering Pumps for Yamuna floodplain overflow & underpass clearance (Minto bridge, Pragati Maidan), 3,250 DJB Water Tankers, and 880 High-Capacity Emergency Gensets.',
     resources: {
-      waterTankers: { total: 850, active: 520, inReserve: 290, inMaintenance: 40 },
+      waterTankers: { total: 3250, active: 520, inReserve: 2690, inMaintenance: 40 },
       rationPackets: { total: 240000, active: 45000, inReserve: 190000, inMaintenance: 5000 },
       floatingClinics: { total: 2, active: 1, inReserve: 1, inMaintenance: 0 },
       debrisMachinery: { total: 480, active: 270, inReserve: 190, inMaintenance: 20 },
@@ -584,7 +584,7 @@ export const STATE_RESOURCE_DATA: StateResourceProfile[] = [
     primaryDepotLocation: 'SDRF 3rd Battalion Depot, Ladhowal, Ludhiana',
     distributionRationale: 'Sutlej, Beas, and Ghaggar river basin overflow relief. 1,200 High-Capacity Dewatering Pumps, 560 Heavy Machinery units, and 290k Dry Ration Packets.',
     resources: {
-      waterTankers: { total: 680, active: 280, inReserve: 360, inMaintenance: 40 },
+      waterTankers: { total: 3080, active: 280, inReserve: 2760, inMaintenance: 40 },
       rationPackets: { total: 290000, active: 55000, inReserve: 230000, inMaintenance: 5000 },
       floatingClinics: { total: 2, active: 1, inReserve: 1, inMaintenance: 0 },
       debrisMachinery: { total: 560, active: 280, inReserve: 250, inMaintenance: 30 },
@@ -609,9 +609,9 @@ export const STATE_RESOURCE_DATA: StateResourceProfile[] = [
     primaryDisasterRisk: 'Multi-Hazard',
     sdrfBattalions: 4,
     primaryDepotLocation: 'TG-SDMA Logistics Base, Nampally / Uppal, Hyderabad',
-    distributionRationale: 'Hyderabad Urban Inundation (GHMC monsoon dewatering fleet with 1,350 pumps) and Godavari basin flood support (Bhadrachalam). 1,350 Water Tankers.',
+    distributionRationale: 'Hyderabad Urban Inundation (GHMC monsoon dewatering fleet with 1,350 pumps) and Godavari basin flood support (Bhadrachalam). 3,350 Water Tankers.',
     resources: {
-      waterTankers: { total: 1350, active: 620, inReserve: 660, inMaintenance: 70 },
+      waterTankers: { total: 3350, active: 620, inReserve: 2660, inMaintenance: 70 },
       rationPackets: { total: 340000, active: 65000, inReserve: 265000, inMaintenance: 10000 },
       floatingClinics: { total: 4, active: 3, inReserve: 1, inMaintenance: 0 },
       debrisMachinery: { total: 690, active: 350, inReserve: 300, inMaintenance: 40 },
@@ -635,9 +635,9 @@ export const STATE_RESOURCE_DATA: StateResourceProfile[] = [
     primaryDisasterRisk: 'Multi-Hazard',
     sdrfBattalions: 4,
     primaryDepotLocation: 'JSDMA Central Depot, Dhurwa, Ranchi',
-    distributionRationale: 'Chota Nagpur plateau mining subsidence and Damodar river flash floods. 320k Ration Packets, 620 Heavy Machinery units, and 850 Water Tankers.',
+    distributionRationale: 'Chota Nagpur plateau mining subsidence and Damodar river flash floods. 320k Ration Packets, 620 Heavy Machinery units, and 2,850 Water Tankers.',
     resources: {
-      waterTankers: { total: 850, active: 380, inReserve: 430, inMaintenance: 40 },
+      waterTankers: { total: 2850, active: 380, inReserve: 2430, inMaintenance: 40 },
       rationPackets: { total: 320000, active: 60000, inReserve: 250000, inMaintenance: 10000 },
       floatingClinics: { total: 2, active: 1, inReserve: 1, inMaintenance: 0 },
       debrisMachinery: { total: 620, active: 310, inReserve: 280, inMaintenance: 30 },
@@ -661,9 +661,9 @@ export const STATE_RESOURCE_DATA: StateResourceProfile[] = [
     primaryDisasterRisk: 'Multi-Hazard',
     sdrfBattalions: 3,
     primaryDepotLocation: 'State Disaster Management Depot, Naya Raipur',
-    distributionRationale: 'Mahanadi river upper basin inundations and forest/mining region relief. 280k Ration Packets, 580 Heavy Machines, and 720 Water Tankers.',
+    distributionRationale: 'Mahanadi river upper basin inundations and forest/mining region relief. 280k Ration Packets, 580 Heavy Machines, and 2,720 Water Tankers.',
     resources: {
-      waterTankers: { total: 720, active: 310, inReserve: 370, inMaintenance: 40 },
+      waterTankers: { total: 2720, active: 310, inReserve: 2370, inMaintenance: 40 },
       rationPackets: { total: 280000, active: 50000, inReserve: 222000, inMaintenance: 8000 },
       floatingClinics: { total: 2, active: 1, inReserve: 1, inMaintenance: 0 },
       debrisMachinery: { total: 580, active: 290, inReserve: 260, inMaintenance: 30 },
@@ -689,7 +689,7 @@ export const STATE_RESOURCE_DATA: StateResourceProfile[] = [
     primaryDepotLocation: 'Directorate of Disaster Management, Port Blair',
     distributionRationale: 'Isolated archipelago in Bay of Bengal with severe tsunami & tropical cyclone risk. 9 Inter-island Hospital Ambulance Boats, 120 Heavy Machinery units, and 45k emergency ration stockpiles.',
     resources: {
-      waterTankers: { total: 80, active: 35, inReserve: 40, inMaintenance: 5 },
+      waterTankers: { total: 1080, active: 35, inReserve: 1040, inMaintenance: 5 },
       rationPackets: { total: 45000, active: 8000, inReserve: 35500, inMaintenance: 1500 },
       floatingClinics: { total: 9, active: 7, inReserve: 2, inMaintenance: 0 },
       debrisMachinery: { total: 120, active: 65, inReserve: 50, inMaintenance: 5 },
@@ -715,7 +715,7 @@ export const STATE_RESOURCE_DATA: StateResourceProfile[] = [
     primaryDepotLocation: 'TSDMA Central Warehouse, Arundhutinagar, Agartala',
     distributionRationale: 'Howrah and Gumti river overflow preparedness. 3 Riverine medical dinghies, 95k Ration Packets, and 310 Dewatering Pumps.',
     resources: {
-      waterTankers: { total: 180, active: 80, inReserve: 90, inMaintenance: 10 },
+      waterTankers: { total: 1180, active: 80, inReserve: 1090, inMaintenance: 10 },
       rationPackets: { total: 95000, active: 20000, inReserve: 72000, inMaintenance: 3000 },
       floatingClinics: { total: 3, active: 2, inReserve: 1, inMaintenance: 0 },
       debrisMachinery: { total: 160, active: 85, inReserve: 65, inMaintenance: 10 },
@@ -741,7 +741,7 @@ export const STATE_RESOURCE_DATA: StateResourceProfile[] = [
     primaryDepotLocation: 'SDMA Depot, Polo Grounds, Shillong',
     distributionRationale: 'World record rainfall zones (Mawsynram/Cherrapunji) with steep gorge flash-floods. 240 Heavy Debris machines for NH-06 landslide clearing, 80k Ration Packets.',
     resources: {
-      waterTankers: { total: 140, active: 60, inReserve: 70, inMaintenance: 10 },
+      waterTankers: { total: 1140, active: 60, inReserve: 1070, inMaintenance: 10 },
       rationPackets: { total: 80000, active: 15000, inReserve: 62000, inMaintenance: 3000 },
       floatingClinics: { total: 1, active: 0, inReserve: 1, inMaintenance: 0 },
       debrisMachinery: { total: 240, active: 140, inReserve: 90, inMaintenance: 10 },
@@ -767,7 +767,7 @@ export const STATE_RESOURCE_DATA: StateResourceProfile[] = [
     primaryDepotLocation: 'Directorate of Fire & Emergency Services, St. Inez, Panaji',
     distributionRationale: 'Mandovi and Zuari riverine ambulance vessels (4 boat clinics), 380 Dewatering Pumps for monsoon coastal lowlands, and 120 Heavy Machinery units.',
     resources: {
-      waterTankers: { total: 140, active: 60, inReserve: 70, inMaintenance: 10 },
+      waterTankers: { total: 1140, active: 60, inReserve: 1070, inMaintenance: 10 },
       rationPackets: { total: 35000, active: 6000, inReserve: 28000, inMaintenance: 1000 },
       floatingClinics: { total: 4, active: 3, inReserve: 1, inMaintenance: 0 },
       debrisMachinery: { total: 120, active: 65, inReserve: 50, inMaintenance: 5 },
@@ -793,7 +793,7 @@ export const STATE_RESOURCE_DATA: StateResourceProfile[] = [
     primaryDepotLocation: 'SSDMA Operations Hub, Tashiling Secretariat, Gangtok',
     distributionRationale: 'Glacial Lake Outburst Flood (GLOF) & Teesta river flash-flood risk (South Lhonak Lake mitigation). 180 Heavy Debris Clearing units, 45k Ration Packets, and 160 DG Sets.',
     resources: {
-      waterTankers: { total: 60, active: 25, inReserve: 30, inMaintenance: 5 },
+      waterTankers: { total: 1060, active: 25, inReserve: 1030, inMaintenance: 5 },
       rationPackets: { total: 45000, active: 9000, inReserve: 34500, inMaintenance: 1500 },
       floatingClinics: { total: 0, active: 0, inReserve: 0, inMaintenance: 0 },
       debrisMachinery: { total: 180, active: 110, inReserve: 60, inMaintenance: 10 },

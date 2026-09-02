@@ -83,7 +83,8 @@ import {
   isStateMatch,
   DistrictVulnerabilityProfile,
 } from '../data/districtProfiles';
-import { useDisasterSimulation } from '../context/DisasterSimulationContext';
+import { useDisasterSimulation, mapToResourceKey } from '../context/DisasterSimulationContext';
+import { useTranslation } from '../context/LanguageContext';
 import {
   UnitIcon3D,
   DISPATCH_UNITS,
@@ -91,6 +92,10 @@ import {
   getUnitInfo,
   DISPATCH_PRESET_BUNDLES,
   PresetDispatchBundle,
+  DISPATCH_RESOURCE_CATALOG,
+  getResourceDisplayName,
+  getResourceShortName,
+  getResourceDefaultUnitType,
 } from './DispatchUnitIcons';
 
 export interface DispatchResourceItem {
@@ -146,6 +151,7 @@ function getVulnerabilityColor(score: number): [number, number, number] {
 }
 
 export const DispatchMap: React.FC = () => {
+  const { t, currentLanguage } = useTranslation();
   // State Selection & Dropdown State
   const [selectedStateId, setSelectedStateId] = useState<string>('bihar');
   const [isDropdownOpen, setIsDropdownOpen] = useState<boolean>(false);
@@ -166,6 +172,13 @@ export const DispatchMap: React.FC = () => {
     activeParams,
     getZoneColor,
     getZoneRGB,
+    statesData,
+    dispatches,
+    setDispatches,
+    validateDispatch,
+    dispatchMission,
+    cancelDispatch,
+    updateDispatchProgress,
     setDisasterScenario,
     setDisasterType,
     setSelectedSeverityId,
@@ -178,10 +191,10 @@ export const DispatchMap: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  // Selected State Profile & Config
+  // Selected State Profile & Config (derived from live statesData)
   const selectedStateProfile = useMemo(() => {
-    return STATE_RESOURCE_DATA.find((s) => s.id === selectedStateId) || STATE_RESOURCE_DATA[0];
-  }, [selectedStateId]);
+    return statesData.find((s) => s.id === selectedStateId) || statesData[0] || STATE_RESOURCE_DATA[0];
+  }, [statesData, selectedStateId]);
 
   const stateGeoConfig = useMemo(() => {
     return getStateGeoConfig(selectedStateId);
@@ -203,8 +216,7 @@ export const DispatchMap: React.FC = () => {
   // Selected Warehouse Facility
   const [selectedWarehouse, setSelectedWarehouse] = useState<WarehouseFacility | null>(null);
 
-  // Active Dispatches (populated with realistic live NDMA initial dispatches)
-  const [dispatches, setDispatches] = useState<DispatchMission[]>(INITIAL_DISPATCHES);
+  // Modal and Panel UI States
   const [showNewDispatchModal, setShowNewDispatchModal] = useState<boolean>(false);
   const [isLeftPanelOpen, setIsLeftPanelOpen] = useState<boolean>(true);
   const [activeLeftTab, setActiveLeftTab] = useState<'inventory' | 'dispatches'>('inventory');
@@ -223,14 +235,14 @@ export const DispatchMap: React.FC = () => {
 
   // Multi-item payload manifest for creating new dispatches
   const [manifestItems, setManifestItems] = useState<DispatchResourceItem[]>([
-    { id: 'm-1', resourceType: 'ambulance', quantity: 4, unitLabel: 'ALS Trauma Ambulances', unitType: 'ambulance' },
-    { id: 'm-2', resourceType: 'rationPackets', quantity: 5000, unitLabel: 'Family Rations', unitType: 'cargoTruck' },
-    { id: 'm-3', resourceType: 'tarpTentKits', quantity: 2000, unitLabel: 'Relief Tents', unitType: 'cargoTruck' },
+    { id: 'm-1', resourceType: 'ambulance', quantity: 4, unitLabel: 'ALS Advanced Trauma Ambulances', unitType: 'ambulance' },
+    { id: 'm-2', resourceType: 'rationPackets', quantity: 5000, unitLabel: 'Family Food Ration Packets', unitType: 'cargoTruck' },
+    { id: 'm-3', resourceType: 'tarpTentKits', quantity: 2000, unitLabel: 'Weatherproof Disaster Tents & Tarps', unitType: 'cargoTruck' },
   ]);
 
   // Temporary builder fields for adding individual items to manifest
-  const [itemToAddCategory, setItemToAddCategory] = useState<string>('motorBoat');
-  const [itemToAddQty, setItemToAddQty] = useState<number>(4);
+  const [itemToAddCategory, setItemToAddCategory] = useState<string>('rationPackets');
+  const [itemToAddQty, setItemToAddQty] = useState<number>(5000);
 
   // Simulation Controls & Arrival Notification State
   const [arrivedNotificationMission, setArrivedNotificationMission] = useState<DispatchMission | null>(null);
@@ -784,45 +796,53 @@ export const DispatchMap: React.FC = () => {
     if (!newTargetDistrict) return;
 
     const targetCoords = estimatedRouteInfo.targetCoords;
-    const finalItems: DispatchResourceItem[] =
+    const baseItems: DispatchResourceItem[] =
       manifestItems.length > 0
         ? manifestItems
         : [
             {
               id: `item-${Date.now()}`,
               resourceType: 'ambulance',
-              quantity: 4,
+              quantity: 2,
               unitLabel: 'ALS Trauma Ambulances',
               unitType: 'ambulance',
             },
           ];
 
-    const leadUnit = manifestItems.length > 0 && manifestItems[0].unitType
-      ? manifestItems[0].unitType
+    const leadUnit = baseItems.length > 0 && baseItems[0].unitType
+      ? baseItems[0].unitType
       : newTransportMode === 'IAF Airlift'
       ? 'militaryHelicopter'
       : newTransportMode === 'Waterway Fleet / Boat'
       ? 'motorBoat'
       : 'cargoTruck';
 
-    const newMission: DispatchMission = {
-      id: `DSP-${Math.floor(1000 + Math.random() * 9000)}`,
-      stateId: selectedStateId,
-      targetDistrict: newTargetDistrict,
-      targetCoords,
-      originDepot: `${activeOriginWarehouse.facilityName} (${activeOriginWarehouse.district})`,
-      originCoords: activeOriginWarehouse.coordinates,
-      items: finalItems,
-      unitType: leadUnit,
-      transportMode: newTransportMode,
-      status: 'In Transit',
-      progress: 4,
-      etaMinutes: estimatedRouteInfo.etaMinutes,
-      priority: newPriority,
-      dispatchedAt: 'Just now',
-    };
+    const missionId = `DSP-${Math.floor(1000 + Math.random() * 9000)}`;
 
-    setDispatches((prev) => [newMission, ...prev]);
+    const validation = validateDispatch(selectedStateId, baseItems, {
+      autoCommit: true,
+      missionDetails: {
+        id: missionId,
+        stateId: selectedStateId,
+        targetDistrict: newTargetDistrict,
+        targetCoords,
+        originDepot: `${activeOriginWarehouse.facilityName} (${activeOriginWarehouse.district})`,
+        originCoords: activeOriginWarehouse.coordinates,
+        unitType: leadUnit,
+        transportMode: newTransportMode,
+        status: 'In Transit',
+        progress: 4,
+        etaMinutes: estimatedRouteInfo.etaMinutes,
+        priority: newPriority,
+        dispatchedAt: 'Just now',
+      },
+    });
+
+    if (!validation.valid && validation.shortfalls.length > 0) {
+      alert(validation.message);
+      return;
+    }
+
     setShowNewDispatchModal(false);
     setActiveLeftTab('dispatches');
     setIsLeftPanelOpen(true);
@@ -834,28 +854,35 @@ export const DispatchMap: React.FC = () => {
     setNewTransportMode(preset.transportMode);
     setNewPriority(preset.priority);
     setManifestItems(
-      preset.items.map((it, idx) => ({
-        id: `preset-item-${idx}-${Date.now()}`,
-        resourceType: it.resourceType,
-        quantity: it.quantity,
-        unitLabel: it.unitLabel,
-        unitType: it.unitType || (it.resourceType in DISPATCH_UNITS ? (it.resourceType as DispatchUnitType) : 'cargoTruck'),
-      }))
+      preset.items.map((it, idx) => {
+        const resKey = mapToResourceKey(it.resourceType);
+        const available = selectedStateProfile.resources[resKey]?.inReserve ?? it.quantity;
+        const validQty = Math.max(1, Math.min(it.quantity, available > 0 ? available : it.quantity));
+        return {
+          id: `preset-item-${idx}-${Date.now()}`,
+          resourceType: it.resourceType,
+          quantity: validQty,
+          unitLabel: it.unitLabel,
+          unitType: it.unitType || (it.resourceType in DISPATCH_UNITS ? (it.resourceType as DispatchUnitType) : 'cargoTruck'),
+        };
+      })
     );
   };
 
   // Add Item to Custom Payload Manifest
   const handleAddManifestItem = () => {
     if (itemToAddQty <= 0) return;
-    const unitInfo = getUnitInfo(itemToAddCategory);
-    const cat = RESOURCE_CATEGORIES[itemToAddCategory as keyof typeof RESOURCE_CATEGORIES];
-    const unitLabel = unitInfo?.shortName || cat?.shortName || itemToAddCategory;
-    const unitType = (itemToAddCategory in DISPATCH_UNITS ? itemToAddCategory : unitInfo?.id || 'cargoTruck') as DispatchUnitType;
+    const resKey = mapToResourceKey(itemToAddCategory);
+    const available = selectedStateProfile.resources[resKey]?.inReserve ?? 0;
+    const validQty = available > 0 ? Math.min(itemToAddQty, available) : itemToAddQty;
+
+    const unitLabel = getResourceDisplayName(itemToAddCategory);
+    const unitType = getResourceDefaultUnitType(itemToAddCategory);
 
     const newItem: DispatchResourceItem = {
       id: `m-item-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
       resourceType: itemToAddCategory,
-      quantity: itemToAddQty,
+      quantity: Math.max(1, validQty),
       unitLabel,
       unitType,
     };
@@ -874,8 +901,14 @@ export const DispatchMap: React.FC = () => {
       handleRemoveManifestItem(id);
       return;
     }
+    const item = manifestItems.find((it) => it.id === id);
+    if (!item) return;
+    const resKey = mapToResourceKey(item.resourceType);
+    const available = selectedStateProfile.resources[resKey]?.inReserve ?? 0;
+    const validQty = available > 0 ? Math.min(newQty, available) : newQty;
+
     setManifestItems((prev) =>
-      prev.map((it) => (it.id === id ? { ...it, quantity: newQty } : it))
+      prev.map((it) => (it.id === id ? { ...it, quantity: validQty } : it))
     );
   };
 
@@ -1379,13 +1412,13 @@ export const DispatchMap: React.FC = () => {
       )}
 
       {/* TOP HEADER: Streamlined Navigation, Telemetry Pill & Tactical Actions */}
-      <header className="absolute top-4 left-4 right-4 z-40 flex flex-wrap items-center justify-between gap-3 pointer-events-none">
+      <header className="absolute top-3 left-3 right-3 sm:top-4 sm:left-4 sm:right-4 z-50 flex items-center justify-between gap-2 pointer-events-none">
         {/* Left: State Dropdown Selector with Quick Navigation */}
-        <div className="flex items-center gap-2 pointer-events-auto" ref={dropdownRef}>
+        <div className="flex items-center gap-1.5 sm:gap-2 pointer-events-auto shrink-0" ref={dropdownRef}>
           {/* Previous State Button */}
           <button
             onClick={() => handleCycleState('prev')}
-            className="h-10 w-9 flex items-center justify-center bg-[#090d16]/95 border border-[#1b2a44] hover:border-blue-500/50 hover:bg-[#121c2e] text-slate-300 hover:text-white rounded-xl backdrop-blur-xl transition-all shadow-xl cursor-pointer"
+            className="h-9 sm:h-10 w-8 sm:w-9 flex items-center justify-center bg-[#090d16]/95 border border-[#1b2a44] hover:border-blue-500/50 hover:bg-[#121c2e] text-slate-300 hover:text-white rounded-xl backdrop-blur-xl transition-all shadow-xl cursor-pointer shrink-0"
             title="Previous State"
           >
             <ChevronLeft size={16} />
@@ -1395,18 +1428,18 @@ export const DispatchMap: React.FC = () => {
           <div className="relative z-50">
             <button
               onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-              className="h-10 min-w-[260px] sm:min-w-[300px] px-3.5 flex items-center justify-between gap-3 bg-[#090d16]/95 border border-[#1b2a44] hover:border-blue-500/60 rounded-xl backdrop-blur-xl transition-all shadow-xl text-left cursor-pointer"
+              className="h-9 sm:h-10 min-w-[170px] sm:min-w-[220px] max-w-[220px] sm:max-w-[280px] px-2.5 sm:px-3 flex items-center justify-between gap-2 bg-[#090d16]/95 border border-[#1b2a44] hover:border-blue-500/60 rounded-xl backdrop-blur-xl transition-all shadow-xl text-left cursor-pointer"
             >
-              <div className="flex items-center gap-2.5 min-w-0">
+              <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
                 <div className="w-6 h-6 rounded-lg bg-blue-500/20 border border-blue-500/40 flex items-center justify-center text-blue-400 font-mono text-[11px] font-bold shrink-0">
                   {selectedStateProfile.stateCode}
                 </div>
                 <div className="min-w-0">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5 sm:gap-2">
                     <span className="text-xs font-bold text-slate-100 truncate">
                       {selectedStateProfile.stateName}
                     </span>
-                    <span className="text-[9px] px-1.5 py-0.2 rounded bg-blue-500/15 text-blue-400 font-bold uppercase tracking-wider border border-blue-500/20">
+                    <span className="text-[9px] px-1.5 py-0.2 rounded bg-blue-500/15 text-blue-400 font-bold uppercase tracking-wider border border-blue-500/20 shrink-0">
                       {selectedStateProfile.region}
                     </span>
                   </div>
@@ -1428,7 +1461,7 @@ export const DispatchMap: React.FC = () => {
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: -10, scale: 0.98 }}
                   transition={{ duration: 0.15 }}
-                  className="absolute top-12 left-0 w-[340px] sm:w-[380px] max-h-[460px] bg-[#090d16] border border-[#1e2f4d] rounded-2xl shadow-2xl backdrop-blur-2xl z-50 overflow-hidden flex flex-col"
+                  className="absolute top-12 left-0 w-[320px] sm:w-[380px] max-h-[460px] bg-[#090d16] border border-[#1e2f4d] rounded-2xl shadow-2xl backdrop-blur-2xl z-[9999] overflow-hidden flex flex-col"
                 >
                   {/* Search and Region Tabs */}
                   <div className="p-3 border-b border-[#15233c] bg-[#070b14]/80 space-y-2">
@@ -1470,7 +1503,7 @@ export const DispatchMap: React.FC = () => {
                     </div>
                   </div>
 
-                    {/* Scrollable State List */}
+                  {/* Scrollable State List */}
                   <div className="flex-1 overflow-y-auto p-2 space-y-1 scrollbar-thin scrollbar-thumb-slate-800 max-h-[320px]">
                     {filteredStates.length === 0 ? (
                       <div className="p-6 text-center text-xs text-slate-400">
@@ -1567,7 +1600,7 @@ export const DispatchMap: React.FC = () => {
           {/* Next State Button */}
           <button
             onClick={() => handleCycleState('next')}
-            className="h-10 w-9 flex items-center justify-center bg-[#090d16]/95 border border-[#1b2a44] hover:border-blue-500/50 hover:bg-[#121c2e] text-slate-300 hover:text-white rounded-xl backdrop-blur-xl transition-all shadow-xl cursor-pointer"
+            className="h-9 sm:h-10 w-8 sm:w-9 flex items-center justify-center bg-[#090d16]/95 border border-[#1b2a44] hover:border-blue-500/50 hover:bg-[#121c2e] text-slate-300 hover:text-white rounded-xl backdrop-blur-xl transition-all shadow-xl cursor-pointer shrink-0"
             title="Next State"
           >
             <ChevronRight size={16} />
@@ -1575,9 +1608,9 @@ export const DispatchMap: React.FC = () => {
         </div>
 
         {/* Center: Live Disaster Impact HUD & State Risk Telemetry */}
-        <div className="hidden lg:flex items-center gap-2.5 bg-[#090d16]/95 border border-[#17243c] px-3.5 py-2 rounded-xl backdrop-blur-xl pointer-events-auto shadow-xl">
+        <div className="flex items-center gap-2 sm:gap-2.5 bg-[#090d16]/95 border border-[#17243c] px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl backdrop-blur-xl pointer-events-auto shadow-xl shrink-0">
           {/* Active Disaster Scenario Badge */}
-          <div className="flex items-center gap-2 border-r border-[#15233c] pr-3">
+          <div className="flex items-center gap-2 border-r border-[#15233c] pr-2.5 sm:pr-3 shrink-0">
             <div
               className={`w-6 h-6 rounded-lg flex items-center justify-center text-white shrink-0 ${
                 disasterType === 'flood'
@@ -1595,14 +1628,14 @@ export const DispatchMap: React.FC = () => {
                 <Wind size={13} />
               )}
             </div>
-            <div className="flex flex-col text-left">
+            <div className="flex flex-col text-left min-w-0">
               <div className="flex items-center gap-1.5">
-                <span className="text-xs font-bold text-slate-100">{activeParams.title}</span>
-                <span className="text-[9px] px-1.5 py-0.2 rounded font-mono font-bold bg-white/10 text-slate-300">
+                <span className="text-xs font-bold text-slate-100 truncate max-w-[100px] sm:max-w-[140px] md:max-w-none">{activeParams.title}</span>
+                <span className="text-[9px] px-1.5 py-0.2 rounded font-mono font-bold bg-white/10 text-slate-300 shrink-0 whitespace-nowrap">
                   {currentSeverity.name}
                 </span>
               </div>
-              <span className="text-[10px] text-slate-400 truncate max-w-[180px]">
+              <span className="text-[10px] text-slate-400 truncate max-w-[100px] sm:max-w-[140px] md:max-w-[180px]">
                 {epicenterName}
               </span>
             </div>
@@ -1624,16 +1657,16 @@ export const DispatchMap: React.FC = () => {
                   });
                 }
               }}
-              className="ml-1 px-2 py-1 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-all cursor-pointer"
+              className="ml-1 px-2 py-1 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-all cursor-pointer shrink-0 shadow-sm whitespace-nowrap"
               title="Focus Camera on Disaster Epicenter"
             >
-              <Crosshair size={11} />
+              <Crosshair size={11} className="text-blue-400" />
               <span>Epicenter</span>
             </button>
           </div>
 
           {/* State Risk Index */}
-          <div className="flex items-center gap-2 border-r border-[#15233c] pr-3">
+          <div className="hidden md:flex items-center gap-2 border-r border-[#15233c] pr-2.5 sm:pr-3 shrink-0 whitespace-nowrap">
             <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">State Risk:</span>
             <span
               className={`text-xs font-black font-mono px-2 py-0.5 rounded-md flex items-center gap-1.5 ${
@@ -1648,7 +1681,7 @@ export const DispatchMap: React.FC = () => {
               title={stateLiveMetrics.summary}
             >
               <div
-                className={`w-1.5 h-1.5 rounded-full ${
+                className={`w-1.5 h-1.5 rounded-full shrink-0 ${
                   stateLiveMetrics.isImpacted
                     ? stateVulnerabilityScore >= 72
                       ? 'bg-red-400 animate-pulse'
@@ -1658,30 +1691,31 @@ export const DispatchMap: React.FC = () => {
                     : 'bg-emerald-400'
                 }`}
               />
-              <span>
+              <span className="whitespace-nowrap">
                 {stateLiveMetrics.isImpacted
                   ? `${stateVulnerabilityScore} / 100 [${stateLiveMetrics.riskTier}]`
                   : 'Stable (0/100)'}
               </span>
               {stateLiveMetrics.isImpacted && (
-                <span className="text-[10px] opacity-75 font-normal">
+                <span className="text-[10px] opacity-75 font-normal whitespace-nowrap">
                   ({stateLiveMetrics.impactedCount}/{stateLiveMetrics.totalCount})
                 </span>
               )}
             </span>
           </div>
 
-          <div className="flex items-center gap-2 text-xs">
-            <span className="text-emerald-400 font-mono text-[11px]">
+          {/* SDRF Battalions - guaranteed visible with whitespace-nowrap */}
+          <div className="flex items-center gap-1.5 text-xs shrink-0 whitespace-nowrap">
+            <span className="text-emerald-400 font-mono text-[11px] font-bold whitespace-nowrap">
               {selectedStateProfile.sdrfBattalions} SDRF Battalions
             </span>
           </div>
         </div>
 
         {/* Right: Live Telemetry Indicator & Panel Toggles */}
-        <div className="flex items-center gap-2 pointer-events-auto">
+        <div className="flex items-center gap-1.5 sm:gap-2 pointer-events-auto shrink-0">
           {/* Live Telemetry Status Pill */}
-          <div className="flex items-center gap-2 px-3.5 py-2 bg-[#090d16]/95 border border-emerald-500/40 rounded-xl shadow-xl backdrop-blur-xl text-xs">
+          <div className="hidden 2xl:flex items-center gap-2 px-3 py-2 bg-[#090d16]/95 border border-emerald-500/40 rounded-xl shadow-xl backdrop-blur-xl text-xs whitespace-nowrap shrink-0">
             <div className="relative flex items-center justify-center">
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping absolute opacity-75" />
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
@@ -1689,22 +1723,22 @@ export const DispatchMap: React.FC = () => {
             <span className="font-mono font-bold tracking-wider text-emerald-400 uppercase text-[11px]">
               LIVE
             </span>
-            <span className="text-slate-400 text-[10px] hidden md:inline font-mono">
-              • Real-Time Stream
+            <span className="text-slate-400 text-[10px] font-mono">
+              • Real-Time
             </span>
           </div>
 
           {/* Toggle Left SDRF Drawer Button */}
           <button
             onClick={() => setIsLeftPanelOpen(!isLeftPanelOpen)}
-            className={`h-10 px-3.5 flex items-center gap-2 rounded-xl text-xs font-bold border backdrop-blur-xl transition-all shadow-xl cursor-pointer ${
+            className={`h-9 sm:h-10 px-3 sm:px-3.5 flex items-center gap-1.5 sm:gap-2 rounded-xl text-xs font-bold border backdrop-blur-xl transition-all shadow-xl cursor-pointer whitespace-nowrap shrink-0 ${
               isLeftPanelOpen
                 ? 'bg-blue-600/30 border-blue-500/60 text-blue-300'
                 : 'bg-[#090d16]/95 border-[#1b2a44] text-slate-300 hover:text-white hover:bg-[#121c2e]'
             }`}
             title="Toggle Resource & Dispatches Panel"
           >
-            <Layers size={14} />
+            <Layers size={14} className="text-blue-400" />
             <span className="hidden sm:inline">Force & Logistics</span>
             {stateDispatches.length > 0 && (
               <span className="w-5 h-5 rounded-full bg-blue-500 text-white text-[10px] font-mono font-bold flex items-center justify-center">
@@ -1716,7 +1750,7 @@ export const DispatchMap: React.FC = () => {
           {/* 2D / 3D Tilt Toggle */}
           <button
             onClick={handleToggle3D}
-            className={`h-10 px-3 flex items-center gap-1.5 rounded-xl text-xs font-bold border backdrop-blur-xl transition-all shadow-xl cursor-pointer ${
+            className={`h-9 sm:h-10 px-2.5 sm:px-3 flex items-center gap-1.5 rounded-xl text-xs font-bold border backdrop-blur-xl transition-all shadow-xl cursor-pointer whitespace-nowrap shrink-0 ${
               is3DMode
                 ? 'bg-blue-600/30 border-blue-500/60 text-blue-300'
                 : 'bg-[#090d16]/95 border-[#1b2a44] text-slate-300 hover:text-white hover:bg-[#121c2e]'
@@ -1730,13 +1764,40 @@ export const DispatchMap: React.FC = () => {
           {/* Reset Camera to State */}
           <button
             onClick={() => flyToState(selectedStateId)}
-            className="h-10 w-10 flex items-center justify-center bg-[#090d16]/95 border border-[#1b2a44] hover:border-blue-500/50 hover:bg-[#121c2e] text-slate-300 hover:text-white rounded-xl backdrop-blur-xl transition-all shadow-xl cursor-pointer"
+            className="h-9 sm:h-10 w-9 sm:w-10 flex items-center justify-center bg-[#090d16]/95 border border-[#1b2a44] hover:border-blue-500/50 hover:bg-[#121c2e] text-slate-300 hover:text-white rounded-xl backdrop-blur-xl transition-all shadow-xl cursor-pointer shrink-0"
             title="Recenter Camera on State"
           >
             <RotateCcw size={14} />
           </button>
         </div>
       </header>
+
+      {/* FIXED FORCE & LOGISTICS FLOATING BUTTON - Always visible on the left, does not hide anything */}
+      <div className="absolute top-15 sm:top-16 left-3 sm:left-4 z-40 pointer-events-auto flex items-center gap-2">
+        <button
+          id="fixed-force-logistics-trigger-btn"
+          onClick={() => setIsLeftPanelOpen((prev) => !prev)}
+          className={`h-9 sm:h-10 px-3 sm:px-3.5 flex items-center gap-2 rounded-xl text-xs font-bold border backdrop-blur-xl transition-all shadow-2xl cursor-pointer ${
+            isLeftPanelOpen
+              ? 'bg-blue-600 border-blue-400 text-white shadow-blue-500/30 ring-2 ring-blue-500/20'
+              : 'bg-[#090d16]/95 border-[#1b2a44] hover:border-blue-500/70 text-slate-200 hover:text-white hover:bg-[#121c2e] shadow-xl'
+          }`}
+          title={isLeftPanelOpen ? 'Collapse Force & Logistics Panel' : 'Open Force & Logistics Panel'}
+        >
+          <Layers size={14} className={isLeftPanelOpen ? 'text-white' : 'text-blue-400'} />
+          <span className="whitespace-nowrap font-bold">Force & Logistics</span>
+          {stateDispatches.length > 0 ? (
+            <span className="px-1.5 py-0.2 rounded-full bg-red-500 text-white text-[10px] font-mono font-bold flex items-center gap-1 animate-pulse">
+              <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
+              {stateDispatches.length} active
+            </span>
+          ) : (
+            <span className="text-[10px] text-slate-400 font-mono inline font-normal">
+              ({selectedStateProfile.sdrfBattalions} Battalions)
+            </span>
+          )}
+        </button>
+      </div>
 
       {/* TOP FLOATING NOTIFICATION: Mission Arrival Alert Banner */}
       <AnimatePresence>
@@ -1821,10 +1882,11 @@ export const DispatchMap: React.FC = () => {
       <AnimatePresence>
         {isLeftPanelOpen && (
           <motion.div
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -20 }}
-            className="absolute top-20 left-4 z-40 w-80 sm:w-92 max-h-[calc(100vh-100px)] flex flex-col bg-[#090d16]/95 border border-[#172338] backdrop-blur-2xl rounded-2xl shadow-2xl p-4 pointer-events-auto space-y-3"
+            initial={{ opacity: 0, y: -10, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -10, scale: 0.98 }}
+            transition={{ duration: 0.15 }}
+            className="absolute top-[106px] sm:top-[116px] left-3 sm:left-4 z-40 w-[310px] sm:w-92 max-h-[calc(100vh-130px)] flex flex-col bg-[#090d16]/95 border border-[#172338] backdrop-blur-2xl rounded-2xl shadow-2xl p-4 pointer-events-auto space-y-3"
           >
             {/* Header & Tabs */}
             <div className="flex items-center justify-between border-b border-[#141f32] pb-2.5">
@@ -1889,75 +1951,95 @@ export const DispatchMap: React.FC = () => {
                   </span>
                 </div>
 
-                {/* 6 Grid Resources */}
+                {/* 6 Grid Resources with Clear Res (Standby), Act (Active), and Total */}
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   {/* 1. Water Bowsers */}
-                  <div className="p-2 bg-[#0c1322] border border-[#16233a] rounded-xl flex items-center justify-between gap-1.5">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <Droplets size={13} className="text-cyan-400 shrink-0" />
-                      <span className="text-[11px] text-slate-300 font-medium truncate">Water Bowsers</span>
+                  <div className="p-2 bg-[#0c1322] border border-[#16233a] rounded-xl space-y-1">
+                    <div className="flex items-center justify-between gap-1 min-w-0">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <Droplets size={13} className="text-cyan-400 shrink-0" />
+                        <span className="text-[11px] text-slate-200 font-bold truncate">Water Bowsers</span>
+                      </div>
+                      <span className="text-[9px] text-slate-400 font-mono">Tot: {selectedStateProfile.resources.waterTankers.total.toLocaleString()}</span>
                     </div>
-                    <div className="text-right shrink-0 font-mono text-[11px] font-bold text-cyan-300">
-                      {selectedStateProfile.resources.waterTankers.active} /{' '}
-                      <span className="text-slate-400">{selectedStateProfile.resources.waterTankers.total}</span>
+                    <div className="flex items-center justify-between text-[10px] font-mono pt-1 border-t border-[#16233a]">
+                      <span className="text-emerald-400 font-bold">Res: {selectedStateProfile.resources.waterTankers.inReserve.toLocaleString()}</span>
+                      <span className="text-cyan-300 font-semibold">Act: {selectedStateProfile.resources.waterTankers.active.toLocaleString()}</span>
                     </div>
                   </div>
 
                   {/* 2. Heavy Earthmovers */}
-                  <div className="p-2 bg-[#0c1322] border border-[#16233a] rounded-xl flex items-center justify-between gap-1.5">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <Truck size={13} className="text-amber-400 shrink-0" />
-                      <span className="text-[11px] text-slate-300 font-medium truncate">Earthmovers</span>
+                  <div className="p-2 bg-[#0c1322] border border-[#16233a] rounded-xl space-y-1">
+                    <div className="flex items-center justify-between gap-1 min-w-0">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <Truck size={13} className="text-amber-400 shrink-0" />
+                        <span className="text-[11px] text-slate-200 font-bold truncate">Earthmovers</span>
+                      </div>
+                      <span className="text-[9px] text-slate-400 font-mono">Tot: {selectedStateProfile.resources.debrisMachinery.total.toLocaleString()}</span>
                     </div>
-                    <div className="text-right shrink-0 font-mono text-[11px] font-bold text-amber-300">
-                      {selectedStateProfile.resources.debrisMachinery.active} /{' '}
-                      <span className="text-slate-400">{selectedStateProfile.resources.debrisMachinery.total}</span>
+                    <div className="flex items-center justify-between text-[10px] font-mono pt-1 border-t border-[#16233a]">
+                      <span className="text-emerald-400 font-bold">Res: {selectedStateProfile.resources.debrisMachinery.inReserve.toLocaleString()}</span>
+                      <span className="text-amber-300 font-semibold">Act: {selectedStateProfile.resources.debrisMachinery.active.toLocaleString()}</span>
                     </div>
                   </div>
 
                   {/* 3. Emergency Generators */}
-                  <div className="p-2 bg-[#0c1322] border border-[#16233a] rounded-xl flex items-center justify-between gap-1.5">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <Zap size={13} className="text-yellow-400 shrink-0" />
-                      <span className="text-[11px] text-slate-300 font-medium truncate">Generators</span>
+                  <div className="p-2 bg-[#0c1322] border border-[#16233a] rounded-xl space-y-1">
+                    <div className="flex items-center justify-between gap-1 min-w-0">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <Zap size={13} className="text-yellow-400 shrink-0" />
+                        <span className="text-[11px] text-slate-200 font-bold truncate">Generators</span>
+                      </div>
+                      <span className="text-[9px] text-slate-400 font-mono">Tot: {selectedStateProfile.resources.emergencyGenerators.total.toLocaleString()}</span>
                     </div>
-                    <div className="text-right shrink-0 font-mono text-[11px] font-bold text-yellow-300">
-                      {selectedStateProfile.resources.emergencyGenerators.active} /{' '}
-                      <span className="text-slate-400">{selectedStateProfile.resources.emergencyGenerators.total}</span>
+                    <div className="flex items-center justify-between text-[10px] font-mono pt-1 border-t border-[#16233a]">
+                      <span className="text-emerald-400 font-bold">Res: {selectedStateProfile.resources.emergencyGenerators.inReserve.toLocaleString()}</span>
+                      <span className="text-yellow-300 font-semibold">Act: {selectedStateProfile.resources.emergencyGenerators.active.toLocaleString()}</span>
                     </div>
                   </div>
 
                   {/* 4. Family Rations */}
-                  <div className="p-2 bg-[#0c1322] border border-[#16233a] rounded-xl flex items-center justify-between gap-1.5">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <Package size={13} className="text-emerald-400 shrink-0" />
-                      <span className="text-[11px] text-slate-300 font-medium truncate">Rations</span>
+                  <div className="p-2 bg-[#0c1322] border border-[#16233a] rounded-xl space-y-1">
+                    <div className="flex items-center justify-between gap-1 min-w-0">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <Package size={13} className="text-emerald-400 shrink-0" />
+                        <span className="text-[11px] text-slate-200 font-bold truncate">Rations</span>
+                      </div>
+                      <span className="text-[9px] text-slate-400 font-mono">Tot: {(selectedStateProfile.resources.rationPackets.total / 1000).toFixed(0)}k</span>
                     </div>
-                    <div className="text-right shrink-0 font-mono text-[11px] font-bold text-emerald-300">
-                      {(selectedStateProfile.resources.rationPackets.total / 1000).toFixed(0)}k
+                    <div className="flex items-center justify-between text-[10px] font-mono pt-1 border-t border-[#16233a]">
+                      <span className="text-emerald-400 font-bold">Res: {(selectedStateProfile.resources.rationPackets.inReserve / 1000).toFixed(0)}k</span>
+                      <span className="text-emerald-300 font-semibold">Act: {(selectedStateProfile.resources.rationPackets.active / 1000).toFixed(0)}k</span>
                     </div>
                   </div>
 
                   {/* 5. Tents & Tarps */}
-                  <div className="p-2 bg-[#0c1322] border border-[#16233a] rounded-xl flex items-center justify-between gap-1.5">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <Tent size={13} className="text-purple-400 shrink-0" />
-                      <span className="text-[11px] text-slate-300 font-medium truncate">Tents / Tarps</span>
+                  <div className="p-2 bg-[#0c1322] border border-[#16233a] rounded-xl space-y-1">
+                    <div className="flex items-center justify-between gap-1 min-w-0">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <Tent size={13} className="text-purple-400 shrink-0" />
+                        <span className="text-[11px] text-slate-200 font-bold truncate">Tents / Tarps</span>
+                      </div>
+                      <span className="text-[9px] text-slate-400 font-mono">Tot: {(selectedStateProfile.resources.tarpTentKits.total / 1000).toFixed(0)}k</span>
                     </div>
-                    <div className="text-right shrink-0 font-mono text-[11px] font-bold text-purple-300">
-                      {(selectedStateProfile.resources.tarpTentKits.total / 1000).toFixed(0)}k
+                    <div className="flex items-center justify-between text-[10px] font-mono pt-1 border-t border-[#16233a]">
+                      <span className="text-emerald-400 font-bold">Res: {(selectedStateProfile.resources.tarpTentKits.inReserve / 1000).toFixed(0)}k</span>
+                      <span className="text-purple-300 font-semibold">Act: {(selectedStateProfile.resources.tarpTentKits.active / 1000).toFixed(0)}k</span>
                     </div>
                   </div>
 
                   {/* 6. Dewatering Pumps */}
-                  <div className="p-2 bg-[#0c1322] border border-[#16233a] rounded-xl flex items-center justify-between gap-1.5">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <Gauge size={13} className="text-blue-400 shrink-0" />
-                      <span className="text-[11px] text-slate-300 font-medium truncate">Trash Pumps</span>
+                  <div className="p-2 bg-[#0c1322] border border-[#16233a] rounded-xl space-y-1">
+                    <div className="flex items-center justify-between gap-1 min-w-0">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <Gauge size={13} className="text-blue-400 shrink-0" />
+                        <span className="text-[11px] text-slate-200 font-bold truncate">Trash Pumps</span>
+                      </div>
+                      <span className="text-[9px] text-slate-400 font-mono">Tot: {selectedStateProfile.resources.waterMotorPumps.total.toLocaleString()}</span>
                     </div>
-                    <div className="text-right shrink-0 font-mono text-[11px] font-bold text-blue-300">
-                      {selectedStateProfile.resources.waterMotorPumps.active} /{' '}
-                      <span className="text-slate-400">{selectedStateProfile.resources.waterMotorPumps.total}</span>
+                    <div className="flex items-center justify-between text-[10px] font-mono pt-1 border-t border-[#16233a]">
+                      <span className="text-emerald-400 font-bold">Res: {selectedStateProfile.resources.waterMotorPumps.inReserve.toLocaleString()}</span>
+                      <span className="text-blue-300 font-semibold">Act: {selectedStateProfile.resources.waterMotorPumps.active.toLocaleString()}</span>
                     </div>
                   </div>
                 </div>
@@ -2036,9 +2118,9 @@ export const DispatchMap: React.FC = () => {
 
                           <div className="flex items-center gap-1 shrink-0">
                             <button
-                              onClick={() => setDispatches((prev) => prev.filter((d) => d.id !== disp.id))}
+                              onClick={() => cancelDispatch(disp.id)}
                               className="text-slate-500 hover:text-red-400 p-1 cursor-pointer"
-                              title="Remove Convoy Record"
+                              title="Recall Convoy & Return Resources to Reserve"
                             >
                               <X size={12} />
                             </button>
@@ -2140,7 +2222,7 @@ export const DispatchMap: React.FC = () => {
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 20 }}
-            className="absolute top-18 right-4 z-30 w-80 sm:w-92 bg-[#090d16]/95 border border-emerald-500/40 backdrop-blur-2xl rounded-2xl p-4 shadow-2xl pointer-events-auto space-y-3"
+            className="absolute top-16 sm:top-[72px] right-3 sm:right-4 z-40 w-80 sm:w-92 bg-[#090d16]/95 border border-emerald-500/40 backdrop-blur-2xl rounded-2xl p-4 shadow-2xl pointer-events-auto space-y-3"
           >
             <div className="flex items-start justify-between border-b border-[#141f32] pb-3">
               <div>
@@ -2194,7 +2276,7 @@ export const DispatchMap: React.FC = () => {
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 20 }}
-            className="absolute top-18 right-4 z-30 w-80 sm:w-92 bg-[#090d16]/95 border border-blue-500/40 backdrop-blur-2xl rounded-2xl p-4 shadow-2xl pointer-events-auto space-y-3"
+            className="absolute top-16 sm:top-[72px] right-3 sm:right-4 z-40 w-80 sm:w-92 bg-[#090d16]/95 border border-blue-500/40 backdrop-blur-2xl rounded-2xl p-4 shadow-2xl pointer-events-auto space-y-3"
           >
             <div className="flex items-start justify-between border-b border-[#141f32] pb-3">
               <div>
@@ -2495,29 +2577,18 @@ export const DispatchMap: React.FC = () => {
                               key={idx}
                               type="button"
                               onClick={() => {
-                                const qty =
-                                  rec.type === 'waterMotorPumps'
-                                    ? 25
-                                    : rec.type === 'tarpTentKits'
-                                    ? 5000
-                                    : rec.type === 'rationPackets'
-                                    ? 10000
-                                    : rec.type === 'floatingClinics'
-                                    ? 4
-                                    : 10;
+                                const catalog = DISPATCH_RESOURCE_CATALOG[rec.type];
+                                const qty = catalog ? catalog.defaultQty : (rec.type === 'waterMotorPumps' ? 25 : rec.type === 'tarpTentKits' ? 5000 : rec.type === 'rationPackets' ? 10000 : rec.type === 'floatingClinics' ? 4 : 10);
+                                const unitLabel = getResourceDisplayName(rec.type);
+                                const unitType = getResourceDefaultUnitType(rec.type);
                                 setManifestItems((prev) => [
                                   ...prev,
                                   {
                                     id: `manifest-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
                                     resourceType: rec.type,
                                     quantity: qty,
-                                    unitLabel: rec.label,
-                                    unitType:
-                                      rec.type in DISPATCH_UNITS
-                                        ? (rec.type as DispatchUnitType)
-                                        : rec.type === 'floatingClinics'
-                                        ? 'motorBoat'
-                                        : 'cargoTruck',
+                                    unitLabel,
+                                    unitType,
                                   },
                                 ]);
                               }}
@@ -2588,14 +2659,49 @@ export const DispatchMap: React.FC = () => {
                     <span className="text-[10px] text-slate-400">Combine multiple supplies in 1 convoy</span>
                   </div>
 
-                  {/* Add New Item Row */}
-                  <div className="p-2 bg-[#0a1426] border border-[#192b4a] rounded-xl space-y-2">
-                    <span className="text-[10px] font-bold text-slate-300 block">Add Resource to Manifest:</span>
+                  {/* Add New Item Row with Live Reserve Telemetry */}
+                  <div className="p-2.5 bg-[#0a1426] border border-[#192b4a] rounded-xl space-y-2">
+                    {(() => {
+                      const resKey = mapToResourceKey(itemToAddCategory);
+                      const available = selectedStateProfile.resources[resKey]?.inReserve ?? 0;
+                      return (
+                        <div className="flex items-center justify-between text-[10px]">
+                          <span className="text-slate-300 font-bold">Add Resource to Manifest:</span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-slate-400">
+                              Standby in {selectedStateProfile.stateName}:{' '}
+                              <span className={`font-mono font-bold ${available > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                {available.toLocaleString()} units
+                              </span>
+                            </span>
+                            {available > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setItemToAddQty(available)}
+                                className="px-1.5 py-0.5 bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/30 rounded font-mono font-bold text-[9px] cursor-pointer"
+                              >
+                                SET MAX
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
+
                     <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
                       <div className="sm:col-span-7">
                         <select
                           value={itemToAddCategory}
-                          onChange={(e) => setItemToAddCategory(e.target.value)}
+                          onChange={(e) => {
+                            const newCat = e.target.value;
+                            setItemToAddCategory(newCat);
+                            const catalog = DISPATCH_RESOURCE_CATALOG[newCat];
+                            const resKey = mapToResourceKey(newCat);
+                            const available = selectedStateProfile.resources[resKey]?.inReserve ?? 0;
+                            if (catalog) {
+                              setItemToAddQty(Math.min(catalog.defaultQty, available > 0 ? available : catalog.defaultQty));
+                            }
+                          }}
                           className="w-full p-2 bg-[#060c16] border border-[#1b2f50] rounded-lg text-xs text-slate-200 focus:outline-none focus:border-cyan-500 font-semibold"
                         >
                           <optgroup label="Emergency Tactical Vehicles & Units">
@@ -2607,28 +2713,37 @@ export const DispatchMap: React.FC = () => {
                             <option value="reconDrone">Disaster Recon Drones</option>
                           </optgroup>
                           <optgroup label="Disaster Relief Supplies & Hardware">
+                            <option value="rationPackets">Family Food Ration Packets</option>
+                            <option value="medicalFirstAidUnits">Trauma & Heat-Stroke First Aid Kits</option>
                             <option value="waterTankers">Potable Water Bowsers (10,000 L)</option>
                             <option value="debrisMachinery">Heavy Debris Excavators & Earthmovers</option>
                             <option value="emergencyGenerators">Emergency DG Generator Sets</option>
-                            <option value="rationPackets">Family Food Ration Packets</option>
                             <option value="tarpTentKits">Weatherproof Disaster Tents & Tarps</option>
                             <option value="waterMotorPumps">High-Volume Dewatering Trash Pumps</option>
-                            <option value="medicalFirstAidUnits">Trauma & Heat-Stroke First Aid Kits</option>
                             <option value="floatingClinics">Inflatable Boat Mobile Clinics</option>
                           </optgroup>
                         </select>
                       </div>
 
                       <div className="sm:col-span-3">
-                        <input
-                          type="number"
-                          min={1}
-                          max={50000}
-                          value={itemToAddQty}
-                          onChange={(e) => setItemToAddQty(Math.max(1, parseInt(e.target.value) || 1))}
-                          className="w-full p-2 bg-[#060c16] border border-[#1b2f50] rounded-lg text-xs text-slate-200 font-mono font-bold focus:outline-none focus:border-cyan-500"
-                          placeholder="Qty"
-                        />
+                        {(() => {
+                          const resKey = mapToResourceKey(itemToAddCategory);
+                          const available = selectedStateProfile.resources[resKey]?.inReserve ?? 0;
+                          return (
+                            <input
+                              type="number"
+                              min={1}
+                              max={available > 0 ? available : 50000}
+                              value={itemToAddQty}
+                              onChange={(e) => {
+                                const val = parseInt(e.target.value) || 1;
+                                setItemToAddQty(available > 0 ? Math.min(Math.max(1, val), available) : Math.max(1, val));
+                              }}
+                              className="w-full p-2 bg-[#060c16] border border-[#1b2f50] rounded-lg text-xs text-slate-200 font-mono font-bold focus:outline-none focus:border-cyan-500"
+                              placeholder="Qty"
+                            />
+                          );
+                        })()}
                       </div>
 
                       <div className="sm:col-span-2">
@@ -2651,53 +2766,71 @@ export const DispatchMap: React.FC = () => {
                         Manifest is empty. Add resources above or select a Quick Preset.
                       </div>
                     ) : (
-                      manifestItems.map((item) => (
-                        <div
-                          key={item.id}
-                          className="p-2 bg-[#0a1322] border border-[#16253c] rounded-lg flex items-center justify-between gap-2 text-xs"
-                        >
-                          <div className="flex items-center gap-2 min-w-0">
-                            <div className="w-6 h-6 rounded bg-[#101e34] flex items-center justify-center shrink-0">
-                              <UnitIcon3D
-                                type={item.unitType || (item.resourceType in DISPATCH_UNITS ? item.resourceType as DispatchUnitType : 'cargoTruck')}
-                                size={18}
-                              />
-                            </div>
-                            <span className="font-semibold text-slate-200 truncate">{item.unitLabel}</span>
-                          </div>
+                      manifestItems.map((item) => {
+                        const resKey = mapToResourceKey(item.resourceType);
+                        const available = selectedStateProfile.resources[resKey]?.inReserve ?? item.quantity;
+                        const isAtMax = item.quantity >= available && available > 0;
 
-                          <div className="flex items-center gap-2 shrink-0">
-                            <div className="flex items-center bg-[#060c18] border border-[#182a46] rounded-md">
-                              <button
-                                type="button"
-                                onClick={() => handleUpdateManifestItemQty(item.id, item.quantity - (item.quantity > 50 ? 50 : 1))}
-                                className="px-1.5 py-0.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-l cursor-pointer font-bold"
-                              >
-                                -
-                              </button>
-                              <span className="px-2 font-mono font-bold text-cyan-300 text-xs">
-                                {item.quantity.toLocaleString()}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => handleUpdateManifestItemQty(item.id, item.quantity + (item.quantity >= 50 ? 50 : 1))}
-                                className="px-1.5 py-0.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-r cursor-pointer font-bold"
-                              >
-                                +
-                              </button>
+                        return (
+                          <div
+                            key={item.id}
+                            className="p-2 bg-[#0a1322] border border-[#16253c] rounded-lg flex items-center justify-between gap-2 text-xs"
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <div className="w-6 h-6 rounded bg-[#101e34] flex items-center justify-center shrink-0">
+                                <UnitIcon3D
+                                  type={item.unitType || (item.resourceType in DISPATCH_UNITS ? item.resourceType as DispatchUnitType : 'cargoTruck')}
+                                  size={18}
+                                />
+                              </div>
+                              <div className="flex flex-col min-w-0">
+                                <span className="font-semibold text-slate-200 truncate">{item.unitLabel}</span>
+                                <span className="text-[9px] text-slate-400">
+                                  Reserve in state: <span className="text-emerald-400 font-mono font-bold">{available.toLocaleString()}</span>
+                                </span>
+                              </div>
                             </div>
 
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveManifestItem(item.id)}
-                              className="p-1 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded cursor-pointer"
-                              title="Remove item"
-                            >
-                              <Trash2 size={13} />
-                            </button>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <div className="flex items-center bg-[#060c18] border border-[#182a46] rounded-md">
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdateManifestItemQty(item.id, item.quantity - (item.quantity > 50 ? 50 : 1))}
+                                  className="px-1.5 py-0.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-l cursor-pointer font-bold"
+                                >
+                                  -
+                                </button>
+                                <span className="px-2 font-mono font-bold text-cyan-300 text-xs">
+                                  {item.quantity.toLocaleString()}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdateManifestItemQty(item.id, Math.min(available > 0 ? available : item.quantity + 50, item.quantity + (item.quantity >= 50 ? 50 : 1)))}
+                                  className="px-1.5 py-0.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-r cursor-pointer font-bold"
+                                  disabled={isAtMax}
+                                >
+                                  +
+                                </button>
+                              </div>
+
+                              {isAtMax && (
+                                <span className="text-[9px] font-bold text-cyan-400 bg-cyan-950/60 border border-cyan-500/30 px-1 py-0.5 rounded">
+                                  MAX
+                                </span>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveManifestItem(item.id)}
+                                className="p-1 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded cursor-pointer"
+                                title="Remove item"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
                           </div>
-                        </div>
-                      ))
+                        );
+                      })
                     )}
                   </div>
                 </div>
