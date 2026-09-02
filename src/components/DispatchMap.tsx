@@ -83,6 +83,7 @@ import {
   isStateMatch,
   DistrictVulnerabilityProfile,
 } from '../data/districtProfiles';
+import { loadIndiaDistrictsGeoJSON } from '../data/fallbackGeoData';
 import { useDisasterSimulation, mapToResourceKey } from '../context/DisasterSimulationContext';
 import { useTranslation } from '../context/LanguageContext';
 import {
@@ -348,18 +349,17 @@ export const DispatchMap: React.FC = () => {
 
   // Load GeoJSON dataset
   useEffect(() => {
+    let isMounted = true;
     setLoading(true);
     setLoadError(null);
-    fetch('/india-districts.json')
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-        return res.json();
-      })
+
+    loadIndiaDistrictsGeoJSON()
       .then((data) => {
+        if (!isMounted) return;
         const enrichedFeatures = (data.features || []).map((feature: any, index: number) => {
-          const rawState = feature.properties?.NAME_1 || 'India';
+          const rawState = feature.properties?.NAME_1 || feature.properties?.ST_NM || 'India';
           const stateName = canonicalStateName(rawState);
-          const districtName = feature.properties?.NAME_2 || `District ${index + 1}`;
+          const districtName = feature.properties?.NAME_2 || feature.properties?.DISTRICT || `District ${index + 1}`;
           const centroid = computeFeatureCentroid(feature.geometry);
           const baseline = getDistrictBaseline(districtName, stateName);
           const distId = `dist-${index}`;
@@ -406,10 +406,16 @@ export const DispatchMap: React.FC = () => {
         setLoading(false);
       })
       .catch((err) => {
-        console.error('Failed to load district maps', err);
-        setLoadError(err.message || 'Failed to load geospatial data');
-        setLoading(false);
+        console.warn('Geospatial district layer notice:', err);
+        if (isMounted) {
+          setLoadError(null);
+          setLoading(false);
+        }
       });
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   // Find matching stateId from raw or canonical state name

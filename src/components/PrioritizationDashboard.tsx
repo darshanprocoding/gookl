@@ -67,6 +67,7 @@ import {
   canonicalStateName,
   STATE_BASELINES,
 } from '../data/districtProfiles';
+import { loadIndiaDistrictsGeoJSON } from '../data/fallbackGeoData';
 import { STATE_GEO_CONFIGS } from '../data/stateCoordinates';
 import { useTranslation } from '../context/LanguageContext';
 
@@ -232,18 +233,14 @@ export const PrioritizationDashboard: React.FC = () => {
     setIsLoadingDistricts(false);
 
     // Then asynchronously fetch full high-resolution India districts GeoJSON if present
-    fetch('/india-districts.json')
-      .then((res) => {
-        if (!res.ok) throw new Error('GeoJSON not found');
-        return res.json();
-      })
+    loadIndiaDistrictsGeoJSON()
       .then((data) => {
         if (!isMounted || !data.features) return;
         const fullList: DistrictData[] = [];
         data.features.forEach((feature: any, index: number) => {
-          const rawState = feature.properties?.NAME_1 || 'India';
+          const rawState = feature.properties?.NAME_1 || feature.properties?.ST_NM || 'India';
           const stateName = canonicalStateName(rawState);
-          const districtName = feature.properties?.NAME_2 || `District ${index + 1}`;
+          const districtName = feature.properties?.NAME_2 || feature.properties?.DISTRICT || `District ${index + 1}`;
           const centroid = computeFeatureCentroid(feature.geometry);
           const baseline = getDistrictBaseline(districtName, stateName);
 

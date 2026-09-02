@@ -3,7 +3,13 @@ import path from 'path';
 
 async function startServer() {
   const app = express();
-  
+  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+
+  // Health check endpoint for Cloud Run and platform deployment probes
+  app.get('/api/health', (req, res) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  });
+
   if (process.env.NODE_ENV === 'production') {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
@@ -20,7 +26,6 @@ async function startServer() {
     app.use(vite.middlewares);
   }
 
-  const PORT = 3000;
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on port ${PORT}`);
   });
