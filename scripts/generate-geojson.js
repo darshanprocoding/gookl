@@ -837,12 +837,13 @@ const STATE_GEO_CONFIGS = {
 /**
  * Creates an authentic multi-point organic polygon geometry around a center coordinate
  */
-function createDistrictPolygon(centerLng, centerLat, radiusDeg, sides = 10, seed = 1) {
+function createDistrictPolygon(centerLng, centerLat, radiusDeg, sides = 6, seed = 1) {
   const points = [];
+  const startAngle = (seed * 137.5) * (Math.PI / 180); // organic rotation
   for (let i = 0; i <= sides; i++) {
-    const angle = (i / sides) * 2 * Math.PI;
-    // Harmonic jitter for realistic natural geographical boundaries
-    const jitter = 0.82 + 0.36 * Math.sin(angle * 3 + seed) + 0.12 * Math.cos(angle * 5 + seed * 2);
+    const angle = startAngle + (i / sides) * 2 * Math.PI;
+    // Very small jitter to remain strictly convex and avoid WebGL earcut triangulation bugs
+    const jitter = 0.95 + 0.05 * Math.sin(angle * 2 + seed);
     const rLng = radiusDeg * jitter;
     const rLat = radiusDeg * jitter * 0.95; // Slight lat scaling
     const lng = Number((centerLng + rLng * Math.cos(angle)).toFixed(5));
@@ -861,7 +862,7 @@ function buildGeoJSON() {
       index++;
       const [lng, lat] = dist.coords;
       const rad = dist.rad || 0.4;
-      const polygonCoords = createDistrictPolygon(lng, lat, rad, 12, index);
+      const polygonCoords = createDistrictPolygon(lng, lat, rad, 6, index);
 
       features.push({
         type: 'Feature',

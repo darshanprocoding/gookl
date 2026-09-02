@@ -65,11 +65,12 @@ export async function loadIndiaDistrictsGeoJSON(): Promise<IndiaDistrictGeoJSON>
   return fallback;
 }
 
-function createDistrictPolygon(centerLng: number, centerLat: number, radiusDeg: number, sides = 10, seed = 1): number[][][] {
+function createDistrictPolygon(centerLng: number, centerLat: number, radiusDeg: number, sides = 6, seed = 1): number[][][] {
   const points: [number, number][] = [];
+  const startAngle = (seed * 137.5) * (Math.PI / 180);
   for (let i = 0; i <= sides; i++) {
-    const angle = (i / sides) * 2 * Math.PI;
-    const jitter = 0.82 + 0.36 * Math.sin(angle * 3 + seed) + 0.12 * Math.cos(angle * 5 + seed * 2);
+    const angle = startAngle + (i / sides) * 2 * Math.PI;
+    const jitter = 0.95 + 0.05 * Math.sin(angle * 2 + seed);
     const rLng = radiusDeg * jitter;
     const rLat = radiusDeg * jitter * 0.95;
     const lng = Number((centerLng + rLng * Math.cos(angle)).toFixed(5));
@@ -273,7 +274,7 @@ export function generateFallbackGeoJSON(): IndiaDistrictGeoJSON {
       index++;
       const [lng, lat] = dist.coords;
       const rad = dist.rad || 0.4;
-      const polygonCoords = createDistrictPolygon(lng, lat, rad, 10, index);
+      const polygonCoords = createDistrictPolygon(lng, lat, rad, 6, index);
 
       features.push({
         type: 'Feature',

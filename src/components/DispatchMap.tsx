@@ -219,6 +219,7 @@ export const DispatchMap: React.FC = () => {
 
   // Modal and Panel UI States
   const [showNewDispatchModal, setShowNewDispatchModal] = useState<boolean>(false);
+  const [alertMessage, setAlertMessage] = useState<string | null>(null);
   const [isLeftPanelOpen, setIsLeftPanelOpen] = useState<boolean>(true);
   const [activeLeftTab, setActiveLeftTab] = useState<'inventory' | 'dispatches'>('inventory');
 
@@ -295,43 +296,52 @@ export const DispatchMap: React.FC = () => {
     vulnerabilityTint: true,
   });
 
+  // Use a ref to access the latest dispatches inside the interval without re-binding
+  const dispatchesRef = useRef(dispatches);
+  useEffect(() => {
+    dispatchesRef.current = dispatches;
+  }, [dispatches]);
+
   // Advance in-transit dispatches realistically with real-time live telemetry stream
   useEffect(() => {
     if (dispatches.length === 0) return;
     const interval = setInterval(() => {
-      setDispatches((prev) => {
-        let newlyArrived: DispatchMission | null = null;
-        const updated = prev.map((d) => {
-          if (d.status === 'In Transit') {
-            const nextProgress = Math.min(100, (d.progress || 0) + 1);
-            const isArrived = nextProgress >= 100;
-            if (isArrived && !d.arrivalReport) {
-              const arrivedMission: DispatchMission = {
-                ...d,
-                progress: 100,
-                etaMinutes: 0,
-                status: 'Arrived & Active',
-                arrivedAt: 'Just now',
-                arrivalReport: computeArrivalReport(d),
-              };
-              newlyArrived = arrivedMission;
-              return arrivedMission;
-            }
-            return {
+      let newlyArrived: DispatchMission | null = null;
+      let hasChanges = false;
+      
+      const updated = dispatchesRef.current.map((d) => {
+        if (d.status === 'In Transit') {
+          hasChanges = true;
+          const nextProgress = Math.min(100, (d.progress || 0) + 1);
+          const isArrived = nextProgress >= 100;
+          if (isArrived && !d.arrivalReport) {
+            const arrivedMission: DispatchMission = {
               ...d,
-              progress: nextProgress,
-              etaMinutes: Math.max(0, Math.round(d.etaMinutes * (1 - nextProgress / 100))),
-              status: isArrived ? 'Arrived & Active' : 'In Transit',
+              progress: 100,
+              etaMinutes: 0,
+              status: 'Arrived & Active',
+              arrivedAt: 'Just now',
+              arrivalReport: computeArrivalReport(d),
             };
+            newlyArrived = arrivedMission;
+            return arrivedMission;
           }
-          return d;
-        });
-
-        if (newlyArrived) {
-          setArrivedNotificationMission(newlyArrived);
+          return {
+            ...d,
+            progress: nextProgress,
+            etaMinutes: Math.max(0, Math.round(d.etaMinutes * (1 - nextProgress / 100))),
+            status: isArrived ? 'Arrived & Active' : 'In Transit',
+          };
         }
-        return updated;
+        return d;
       });
+      
+      if (hasChanges) {
+        setDispatches(updated);
+      }
+      if (newlyArrived) {
+        setArrivedNotificationMission(newlyArrived);
+      }
     }, 1200);
     return () => clearInterval(interval);
   }, [dispatches.length]);
@@ -845,7 +855,7 @@ export const DispatchMap: React.FC = () => {
     });
 
     if (!validation.valid && validation.shortfalls.length > 0) {
-      alert(validation.message);
+      setAlertMessage(validation.message);
       return;
     }
 
@@ -3096,6 +3106,41 @@ export const DispatchMap: React.FC = () => {
                 >
                   Acknowledge & Close
                 </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Validation Alert Popup */}
+        {alertMessage && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-[#0f172a] border-l-4 border-l-red-500 border border-[#1e293b] rounded-2xl w-full max-w-md shadow-2xl shadow-red-500/10 overflow-hidden"
+            >
+              <div className="p-6">
+                <div className="flex items-start gap-4">
+                  <div className="p-3 bg-red-500/10 rounded-full shrink-0">
+                    <AlertTriangle className="text-red-500" size={24} />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-100 mb-2">Dispatch Validation Failed</h3>
+                    <p className="text-sm text-slate-300 leading-relaxed">
+                      {alertMessage}
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-8 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setAlertMessage(null)}
+                    className="px-6 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-bold text-sm rounded-xl transition-all cursor-pointer"
+                  >
+                    Dismiss
+                  </button>
+                </div>
               </div>
             </motion.div>
           </div>
